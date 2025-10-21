@@ -12,10 +12,17 @@ export default {
   // 📞 שליחת הודעה ב-WhatsApp
   sendWhatsAppMessage: async (toPhone, messageText) => {
     try {
-      // 🔧 וודא שהטלפון בפורמט נכון
-      let to = toPhone;
+      // 🔧 ניקוי ועיבוד מספר הטלפון
+      let to = toPhone.trim();
+
+      // אם המספר לא מתחיל ב-+ נוסיף אותו
+      if (!to.startsWith("+")) {
+        to = "+" + to;
+      }
+
+      // אם המספר לא מתחיל ב-whatsapp: נוסיף אותו
       if (!to.startsWith("whatsapp:")) {
-        to = "whatsapp:" + toPhone;
+        to = "whatsapp:" + to;
       }
 
       console.log("📞 שולח לטלפון:", to);
