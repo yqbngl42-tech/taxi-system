@@ -1,9 +1,6 @@
 import RideCounter from "../models/RideCounter.js";
 
-export default {
-  /**
-   * קבל את המספר הסידורי הבא
-   */
+const rideNumberGenerator = {
   getNextRideNumber: async () => {
     try {
       const counter = await RideCounter.findOneAndUpdate(
@@ -19,11 +16,10 @@ export default {
     }
   },
 
-  /**
-   * פורמט המספר הסידורי
-   */
   formatRideNumber: async () => {
-    const num = await this.getNextRideNumber();
+    const num = await rideNumberGenerator.getNextRideNumber();
     return `#${num}`;
   }
 };
+
+export default rideNumberGenerator;
