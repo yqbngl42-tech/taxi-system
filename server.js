@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-dotenv.config(); // ⬅️ חייב להיות לפני כל שימוש ב־process.env
+dotenv.config();
 
 import express from "express";
 import mongoose from "mongoose";
@@ -9,7 +9,12 @@ import jwt from "jsonwebtoken";
 import Ride from "./models/Ride.js";
 import Driver from "./models/Driver.js";
 import Payment from "./models/Payment.js";
+import WhatsAppGroup from "./models/WhatsAppGroup.js";
+import AdminContact from "./models/AdminContact.js";
 import twilioAdapter from "./utils/twilioAdapter.js";
+import logger from "./utils/logger.js";
+import rateLimiter from "./utils/rateLimiter.js";
+import rideNumberGenerator from "./utils/rideNumberGenerator.js";
 import cors from "cors";
 import twilio from "twilio";
 
@@ -19,8 +24,6 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-
-
 // 🔐 MIDDLEWARE SECURITY
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -29,6 +32,9 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.static(path.join(__dirname, "public")));
+
+// 🛡️ Rate Limiting
+app.use(rateLimiter.middleware(60, 60000));
 
 // 🛡️ Security Headers
 app.use((req, res, next) => {
@@ -51,7 +57,6 @@ const authenticateToken = (req, res, next) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     
-    // בדוק אם התוקן לא פקע
     if (decoded.exp && Date.now() >= decoded.exp * 1000) {
       return res.status(401).json({ ok: false, error: "הטוקן פקע - נדרשת כניסה חדשה" });
     }
@@ -59,7 +64,7 @@ const authenticateToken = (req, res, next) => {
     req.user = decoded;
     next();
   } catch (err) {
-    console.error("🔴 שגיאת טוקן:", err.message);
+    logger.error("שגיאת טוקן", err);
     return res.status(403).json({ ok: false, error: "טוקן לא תקין או פקע" });
   }
 };
@@ -73,13 +78,11 @@ app.post("/api/login", async (req, res) => {
       return res.status(400).json({ ok: false, error: "צריך הזן סיסמה" });
     }
     
-    // בדוק סיסמה
     if (password !== process.env.ADMIN_PASSWORD) {
-      console.warn("⚠️ ניסיון כניסה עם סיסמה שגויה");
+      logger.warn("ניסיון כניסה עם סיסמה שגויה");
       return res.status(401).json({ ok: false, error: "סיסמה לא נכונה" });
     }
     
-    // צור טוקן עם תוקף של 24 שעות
     const token = jwt.sign(
       { 
         user: "admin", 
@@ -90,15 +93,15 @@ app.post("/api/login", async (req, res) => {
       { expiresIn: "24h" }
     );
     
-    console.log("✅ כניסה בהצלחה!");
+    logger.success("כניסה בהצלחה");
     res.json({ 
       ok: true, 
       token,
-      expiresIn: 86400, // 24 שעות בשניות
+      expiresIn: 86400,
       message: "כניסה בהצלחה!"
     });
   } catch (err) {
-    console.error("❌ שגיאה בlogin:", err);
+    logger.error("שגיאה בlogin", err);
     res.status(500).json({ ok: false, error: "שגיאה בשרת" });
   }
 });
@@ -106,14 +109,14 @@ app.post("/api/login", async (req, res) => {
 // 📍 API 2: LOGOUT - יציאה
 app.post("/api/logout", authenticateToken, (req, res) => {
   try {
-    console.log("👋 משתמש התנתק");
+    logger.action("משתמש התנתק");
     res.json({ ok: true, message: "התנתקת בהצלחה" });
   } catch (err) {
     res.status(500).json({ ok: false, error: "שגיאה בהתנתקות" });
   }
 });
 
-// 📍 API 3: יצירת נסיעה
+// 📍 API 3: יצירת נסיעה חדשה
 app.post("/api/rides", authenticateToken, async (req, res) => {
   try {
     const { 
@@ -126,6 +129,7 @@ app.post("/api/rides", authenticateToken, async (req, res) => {
       price, 
       commissionRate, 
       sendTo,
+      sendToGroup,
       rideType = "regular",
       specialNotes = [],
       groupChat = "default"
@@ -151,8 +155,12 @@ app.post("/api/rides", authenticateToken, async (req, res) => {
     }
 
     const commission = Math.round((price || 0) * (commissionRate || 0.10));
+    
+    // קבל מספר סידורי
+    const rideNumber = await rideNumberGenerator.formatRideNumber();
 
     const ride = await Ride.create({
+      rideNumber,
       customerName: customerName.trim(),
       customerPhone: customerPhone.trim(),
       pickup: pickup.trim(),
@@ -176,16 +184,35 @@ app.post("/api/rides", authenticateToken, async (req, res) => {
 
     let successCount = 0;
     const failedPhones = [];
+    let phonesToSend = [];
+
+    // אם בחרו קבוצה
+    if (sendToGroup) {
+      try {
+        const group = await WhatsAppGroup.findById(sendToGroup);
+        if (group && group.isActive) {
+          phonesToSend = group.phoneNumbers;
+          logger.action("ניסיון שליחה לקבוצה", { groupName: group.name, count: phonesToSend.length });
+        }
+      } catch (err) {
+        logger.error("שגיאה בחיפוש קבוצה", err);
+      }
+    }
+    
+    // או טלפונים בודדים
+    if (sendTo && sendTo.length > 0 && phonesToSend.length === 0) {
+      phonesToSend = sendTo;
+    }
 
     // שלח הודעות לנהגים
-    if (sendTo && sendTo.length > 0) {
-      for (const phone of sendTo) {
+    if (phonesToSend.length > 0) {
+      for (const phone of phonesToSend) {
         try {
           const msgBody = createGroupMessage(ride);
           await twilioAdapter.sendWhatsAppMessage(phone, msgBody);
           successCount++;
         } catch (err) {
-          console.error("❌ שגיאה בשליחה ל-", phone, err.message);
+          logger.warn("שגיאה בשליחה לטלפון", { phone, error: err.message });
           failedPhones.push(phone);
         }
       }
@@ -199,10 +226,9 @@ app.post("/api/rides", authenticateToken, async (req, res) => {
           timestamp: new Date()
         });
         await ride.save();
+        logger.success("נסיעה נשלחה", { rideId: ride._id, rideNumber, sentCount: successCount });
       }
     }
-
-    console.log(`✅ נסיעה נוצרה: ${ride._id} - נשלח ל-${successCount} נהגים`);
 
     res.json({ 
       ok: true, 
@@ -212,18 +238,48 @@ app.post("/api/rides", authenticateToken, async (req, res) => {
       message: successCount > 0 ? "✅ הנסיעה נשלחה!" : "⚠️ לא נשלחה לנהגים"
     });
   } catch (err) {
-    console.error("❌ שגיאה בעת יצירת נסיעה:", err);
+    logger.error("שגיאה בעת יצירת נסיעה", err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-// 📍 API 4: קבלת כל הנסיעות
+// 📍 API 4: קבלת כל הנסיעות (עם חיפוש מתקדם)
 app.get("/api/rides", authenticateToken, async (req, res) => {
   try {
-    const { status, limit = 200, skip = 0 } = req.query;
+    const { 
+      status, 
+      limit = 200, 
+      skip = 0,
+      search,
+      rideType,
+      startDate,
+      endDate,
+      driverPhone
+    } = req.query;
     
     const query = {};
+    
     if (status) query.status = status;
+    if (rideType) query.rideType = rideType;
+    if (driverPhone) query.driverPhone = driverPhone;
+    
+    // חיפוש בשם או טלפון לקוח
+    if (search) {
+      query.$or = [
+        { customerName: { $regex: search, $options: 'i' } },
+        { customerPhone: { $regex: search, $options: 'i' } },
+        { pickup: { $regex: search, $options: 'i' } },
+        { destination: { $regex: search, $options: 'i' } },
+        { rideNumber: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    // חיפוש לפי תאריך
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) query.createdAt.$gte = new Date(startDate);
+      if (endDate) query.createdAt.$lte = new Date(endDate);
+    }
     
     const rides = await Ride.find(query)
       .sort({ createdAt: -1 })
@@ -239,7 +295,7 @@ app.get("/api/rides", authenticateToken, async (req, res) => {
       count: rides.length
     });
   } catch (err) {
-    console.error("❌ שגיאה בקבלת נסיעות:", err);
+    logger.error("שגיאה בקבלת נסיעות", err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -247,10 +303,17 @@ app.get("/api/rides", authenticateToken, async (req, res) => {
 // 📍 API 5: קבלת כל הנהגים
 app.get("/api/drivers", authenticateToken, async (req, res) => {
   try {
-    const drivers = await Driver.find().select('-blockedReason');
+    const { isBlocked, isActive } = req.query;
+    
+    const query = {};
+    if (isBlocked !== undefined) query.isBlocked = isBlocked === 'true';
+    if (isActive !== undefined) query.isActive = isActive === 'true';
+    
+    const drivers = await Driver.find(query).select('-blockedReason');
+    
     res.json({ ok: true, drivers, count: drivers.length });
   } catch (err) {
-    console.error("❌ שגיאה בקבלת נהגים:", err);
+    logger.error("שגיאה בקבלת נהגים", err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -279,10 +342,10 @@ app.post("/api/drivers/:id/block", authenticateToken, async (req, res) => {
       return res.status(404).json({ ok: false, error: "נהג לא נמצא" });
     }
 
-    console.log(`🚫 נהג חסום: ${driver.name}`);
+    logger.action("נהג חסום", { driverName: driver.name, reason });
     res.json({ ok: true, driver, message: "נהג חסום בהצלחה" });
   } catch (err) {
-    console.error("❌ שגיאה בחסימה:", err);
+    logger.error("שגיאה בחסימה", err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -305,10 +368,10 @@ app.post("/api/drivers/:id/unblock", authenticateToken, async (req, res) => {
       return res.status(404).json({ ok: false, error: "נהג לא נמצא" });
     }
 
-    console.log(`🔓 חסימה הוסרה: ${driver.name}`);
+    logger.action("חסימה הוסרה", { driverName: driver.name });
     res.json({ ok: true, driver, message: "חסימה הוסרה בהצלחה" });
   } catch (err) {
-    console.error("❌ שגיאה בהסרת חסימה:", err);
+    logger.error("שגיאה בהסרת חסימה", err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -342,9 +405,217 @@ app.patch("/api/rides/:id/status", authenticateToken, async (req, res) => {
       return res.status(404).json({ ok: false, error: "נסיעה לא נמצאה" });
     }
 
+    logger.action("סטטוס עודכן", { rideNumber: ride.rideNumber, newStatus: status });
     res.json({ ok: true, ride, message: "סטטוס עודכן" });
   } catch (err) {
-    console.error("❌ שגיאה בעדכון סטטוס:", err);
+    logger.error("שגיאה בעדכון סטטוס", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ============ API: ניהול קבוצות WhatsApp ============
+
+// 📍 API 9: קבלת כל הקבוצות
+app.get("/api/groups", authenticateToken, async (req, res) => {
+  try {
+    const groups = await WhatsAppGroup.find().sort({ name: 1 });
+    res.json({ ok: true, groups, count: groups.length });
+  } catch (err) {
+    logger.error("שגיאה בקבלת קבוצות", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 📍 API 10: יצירת קבוצה חדשה
+app.post("/api/groups", authenticateToken, async (req, res) => {
+  try {
+    const { name, description, phoneNumbers } = req.body;
+    
+    if (!name || !phoneNumbers || phoneNumbers.length === 0) {
+      return res.status(400).json({ ok: false, error: "צריך שם וטלפונים" });
+    }
+
+    // בדוק שהשם ייחודי
+    const existing = await WhatsAppGroup.findOne({ name });
+    if (existing) {
+      return res.status(400).json({ ok: false, error: "קבוצה בשם זה כבר קיימת" });
+    }
+
+    const group = await WhatsAppGroup.create({
+      name: name.trim(),
+      description: description || null,
+      phoneNumbers,
+      membersCount: phoneNumbers.length,
+      createdBy: req.user.user
+    });
+
+    logger.action("קבוצה חדשה נוצרה", { groupName: name, membersCount: phoneNumbers.length });
+    res.json({ ok: true, group, message: "קבוצה נוצרה בהצלחה" });
+  } catch (err) {
+    logger.error("שגיאה ביצירת קבוצה", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 📍 API 11: עדכון קבוצה
+app.patch("/api/groups/:id", authenticateToken, async (req, res) => {
+  try {
+    const { name, description, phoneNumbers, isActive } = req.body;
+
+    const group = await WhatsAppGroup.findByIdAndUpdate(
+      req.params.id,
+      {
+        name: name ? name.trim() : undefined,
+        description: description || undefined,
+        phoneNumbers: phoneNumbers || undefined,
+        membersCount: phoneNumbers ? phoneNumbers.length : undefined,
+        isActive: isActive !== undefined ? isActive : undefined,
+        updatedAt: new Date()
+      },
+      { new: true }
+    );
+
+    if (!group) {
+      return res.status(404).json({ ok: false, error: "קבוצה לא נמצאה" });
+    }
+
+    logger.action("קבוצה עודכנה", { groupName: group.name });
+    res.json({ ok: true, group, message: "קבוצה עודכנה בהצלחה" });
+  } catch (err) {
+    logger.error("שגיאה בעדכון קבוצה", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 📍 API 12: מחיקת קבוצה
+app.delete("/api/groups/:id", authenticateToken, async (req, res) => {
+  try {
+    const group = await WhatsAppGroup.findByIdAndDelete(req.params.id);
+
+    if (!group) {
+      return res.status(404).json({ ok: false, error: "קבוצה לא נמצאה" });
+    }
+
+    logger.action("קבוצה נמחקה", { groupName: group.name });
+    res.json({ ok: true, message: "קבוצה נמחקה בהצלחה" });
+  } catch (err) {
+    logger.error("שגיאה במחיקת קבוצה", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 📍 API 13: הוספת טלפון לקבוצה
+app.post("/api/groups/:id/add-phone", authenticateToken, async (req, res) => {
+  try {
+    const { phone } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({ ok: false, error: "חסר טלפון" });
+    }
+
+    const group = await WhatsAppGroup.findByIdAndUpdate(
+      req.params.id,
+      {
+        $addToSet: { phoneNumbers: phone },
+        updatedAt: new Date()
+      },
+      { new: true }
+    );
+
+    if (!group) {
+      return res.status(404).json({ ok: false, error: "קבוצה לא נמצאה" });
+    }
+
+    group.membersCount = group.phoneNumbers.length;
+    await group.save();
+
+    logger.action("טלפון נוסף לקבוצה", { groupName: group.name, phone });
+    res.json({ ok: true, group, message: "טלפון נוסף בהצלחה" });
+  } catch (err) {
+    logger.error("שגיאה בהוספת טלפון", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 📍 API 14: הסרת טלפון מקבוצה
+app.post("/api/groups/:id/remove-phone", authenticateToken, async (req, res) => {
+  try {
+    const { phone } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({ ok: false, error: "חסר טלפון" });
+    }
+
+    const group = await WhatsAppGroup.findByIdAndUpdate(
+      req.params.id,
+      {
+        $pull: { phoneNumbers: phone },
+        updatedAt: new Date()
+      },
+      { new: true }
+    );
+
+    if (!group) {
+      return res.status(404).json({ ok: false, error: "קבוצה לא נמצאה" });
+    }
+
+    group.membersCount = group.phoneNumbers.length;
+    await group.save();
+
+    logger.action("טלפון הוסר מקבוצה", { groupName: group.name, phone });
+    res.json({ ok: true, group, message: "טלפון הוסר בהצלחה" });
+  } catch (err) {
+    logger.error("שגיאה בהסרת טלפון", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ============ API: ניהול פרטי אדמין ============
+
+// 📍 API 15: קבלת פרטי אדמין
+app.get("/api/admin-contact", authenticateToken, async (req, res) => {
+  try {
+    let contact = await AdminContact.findOne();
+    
+    if (!contact) {
+      contact = await AdminContact.create({
+        adminName: "מנהל התחנה",
+        adminPhone: "+972500000000"
+      });
+    }
+
+    res.json({ ok: true, contact });
+  } catch (err) {
+    logger.error("שגיאה בקבלת פרטי אדמין", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 📍 API 16: עדכון פרטי אדמין
+app.patch("/api/admin-contact", authenticateToken, async (req, res) => {
+  try {
+    const { adminName, adminPhone, adminEmail, appealMessage } = req.body;
+
+    let contact = await AdminContact.findOne();
+    
+    if (!contact) {
+      contact = await AdminContact.create({
+        adminName: adminName || "מנהל התחנה",
+        adminPhone: adminPhone || "+972500000000"
+      });
+    } else {
+      if (adminName) contact.adminName = adminName;
+      if (adminPhone) contact.adminPhone = adminPhone;
+      if (adminEmail) contact.adminEmail = adminEmail;
+      if (appealMessage) contact.appealMessage = appealMessage;
+      contact.updatedAt = new Date();
+      await contact.save();
+    }
+
+    logger.action("פרטי אדמין עודכנו", { adminName: contact.adminName });
+    res.json({ ok: true, contact, message: "פרטים עודכנו בהצלחה" });
+  } catch (err) {
+    logger.error("שגיאה בעדכון פרטי אדמין", err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -352,11 +623,9 @@ app.patch("/api/rides/:id/status", authenticateToken, async (req, res) => {
 // 🔗 WEBHOOK: קבלת הודעות מ-Twilio
 app.post("/webhook", async (req, res) => {
   try {
-    // ✅ בדיקת חתימה של Twilio (Security!)
     const twilioSignature = req.headers['x-twilio-signature'] || '';
     const url = `${process.env.WEBHOOK_URL}/webhook`;
     
-    // תוקפות בדיקה בלבד אם יש את ה-token
     if (process.env.TWILIO_AUTH_TOKEN && process.env.NODE_ENV === 'production') {
       if (!twilio.validateRequest(
         process.env.TWILIO_AUTH_TOKEN,
@@ -364,7 +633,7 @@ app.post("/webhook", async (req, res) => {
         url,
         req.body
       )) {
-        console.warn("⚠️ חתימה של Twilio לא תקינה!");
+        logger.warn("חתימת Twilio לא תקינה");
         return res.sendStatus(403);
       }
     }
@@ -373,15 +642,18 @@ app.post("/webhook", async (req, res) => {
     const from = body.From;
     const messageBody = body.Body?.trim();
 
-    console.log("📞 הודעה מ-Twilio:", messageBody, "מ-", from);
+    logger.info("הודעה מ-Twilio", { from, message: messageBody });
 
     // בדוק אם הנהג חסום
     const driver = await Driver.findOne({ phone: from.replace("whatsapp:", "") });
     
     if (driver && driver.isBlocked) {
+      const adminContact = await AdminContact.findOne();
+      const appealMsg = adminContact?.appealMessage || "⚠️ עברתי על התקנות - בקשה להסרת חסימה";
+      
       await twilioAdapter.sendWhatsAppMessage(
         from,
-        `🚫 אתה חסום מלקחת נסיעות.\n\nסיבה: ${driver.blockedReason}\n\nלפתרון אנא פנה למנהל התחנה.`
+        `🚫 אתה חסום מלקחת נסיעות.\n\nסיבה: ${driver.blockedReason}\n\nלערעור: ${adminContact?.adminPhone}\n\n${appealMsg}`
       );
       return res.sendStatus(200);
     }
@@ -407,11 +679,13 @@ app.post("/webhook", async (req, res) => {
       );
 
       if (updated) {
+        // שלח פרטים מלאים בפרטי
         await twilioAdapter.sendWhatsAppMessage(
           from,
           createPrivateMessage(updated)
         );
-        console.log("✅ נהג קיבל את הנסיעה!");
+        
+        logger.action("נהג קיבל נסיעה", { rideNumber: updated.rideNumber, driverPhone: from });
       } else {
         await twilioAdapter.sendWhatsAppMessage(
           from,
@@ -422,7 +696,7 @@ app.post("/webhook", async (req, res) => {
 
     res.sendStatus(200);
   } catch (err) {
-    console.error("❌ שגיאה בWebhook:", err);
+    logger.error("שגיאה בWebhook", err);
     res.sendStatus(500);
   }
 });
@@ -442,8 +716,19 @@ app.get("/api/statistics", authenticateToken, async (req, res) => {
     const totalRides = await Ride.countDocuments();
     const completedRides = await Ride.countDocuments({ status: "finished" });
     const activeDrivers = await Driver.countDocuments({ isActive: true, isBlocked: false });
+    const blockedDrivers = await Driver.countDocuments({ isBlocked: true });
+    const totalGroups = await WhatsAppGroup.countDocuments({ isActive: true });
+    
     const totalEarnings = await Ride.aggregate([
       { $group: { _id: null, total: { $sum: "$price" } } }
+    ]);
+
+    const totalCommission = await Ride.aggregate([
+      { $group: { _id: null, total: { $sum: "$commissionAmount" } } }
+    ]);
+
+    const ridesByType = await Ride.aggregate([
+      { $group: { _id: "$rideType", count: { $sum: 1 } } }
     ]);
 
     res.json({
@@ -453,11 +738,15 @@ app.get("/api/statistics", authenticateToken, async (req, res) => {
         completedRides,
         completionRate: totalRides > 0 ? ((completedRides / totalRides) * 100).toFixed(2) + '%' : '0%',
         activeDrivers,
-        totalEarnings: totalEarnings[0]?.total || 0
+        blockedDrivers,
+        totalEarnings: totalEarnings[0]?.total || 0,
+        totalCommission: totalCommission[0]?.total || 0,
+        totalGroups,
+        ridesByType
       }
     });
   } catch (err) {
-    console.error("❌ שגיאה בסטטיסטיקה:", err);
+    logger.error("שגיאה בסטטיסטיקה", err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -469,7 +758,7 @@ app.use((req, res) => {
 
 // 📢 Error Handler
 app.use((err, req, res, next) => {
-  console.error("❌ שגיאה:", err);
+  logger.error("שגיאה לא צפויה", err);
   res.status(500).json({ 
     ok: false, 
     error: "שגיאה בשרת",
@@ -480,14 +769,14 @@ app.use((err, req, res, next) => {
 // 🚀 START SERVER
 async function start() {
   try {
-    console.log("🔄 התחלת חיבור ל-MongoDB...");
+    logger.info("התחלת חיבור ל-MongoDB...");
     
     await mongoose.connect(process.env.MONGODB_URI, {
       serverSelectionTimeoutMS: 10000,
       socketTimeoutMS: 45000
     });
     
-    console.log("✅ מחובר ל-MongoDB!");
+    logger.success("מחובר ל-MongoDB!");
     
     app.listen(PORT, () => {
       console.log(`\n🚀 השרת רץ על: http://localhost:${PORT}`);
@@ -496,13 +785,7 @@ async function start() {
       console.log(`📊 סטטיסטיקה: http://localhost:${PORT}/api/statistics\n`);
     });
   } catch (err) {
-    console.error("\n❌ בעיה בחיבור ל-MongoDB:");
-    console.error("   קוד שגיאה:", err.code);
-    console.error("   הודעה:", err.message);
-    console.error("\n💡 בדוק:");
-    console.error("   1. IP Whitelist ב-MongoDB Atlas");
-    console.error("   2. MONGODB_URI בקובץ .env");
-    console.error("   3. Credentials (username/password)\n");
+    logger.error("בעיה בחיבור ל-MongoDB", err);
     process.exit(1);
   }
 }
@@ -511,14 +794,13 @@ start();
 
 // ✨ Helper Functions
 function createGroupMessage(ride) {
-  return `🚖 נסיעה חדשה!
+  return `🚖 נסיעה חדשה! ${ride.rideNumber}
 
 📍 איסוף: ${ride.pickup}
 🎯 יעד: ${ride.destination}
 🕐 שעה: ${ride.scheduledTime || 'עכשיו'}
 💰 מחיר: ₪${ride.price}
 ${ride.rideType !== "regular" ? `🎫 סוג: ${ride.rideType}` : ""}
-${ride.specialNotes?.length > 0 ? `📝 הערות: ${ride.specialNotes.join(", ")}` : ""}
 
 💬 לקבלה - כתבו בפרטי:
 ACCEPT ${ride._id}`;
@@ -527,7 +809,7 @@ ACCEPT ${ride._id}`;
 function createPrivateMessage(ride) {
   const payLink = process.env.BIT_LINK || "https://bit.ly/taxi-payment";
   
-  return `✅ נסיעה אושרה!
+  return `✅ נסיעה אושרה! ${ride.rideNumber}
 
 👤 לקוח: ${ride.customerName}
 📞 טלפון: ${ride.customerPhone}

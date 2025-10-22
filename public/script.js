@@ -1,256 +1,542 @@
 // 🔐 בדוק תוקף ואבטחה
 const token = localStorage.getItem('authToken');
-console.log("Token בזיכרון:", token ? "✅ יש" : "❌ אין");
 
 if (!token) {
   window.location.href = '/login.html';
 }
 
-// 🚪 התנתקות
-function logout() {
-  localStorage.removeItem('authToken');
-  window.location.href = '/login.html';
+let currentPhoneList = [];
+let currentRideId = null;
+let currentGroupId = null;
+let isDarkMode = localStorage.getItem('darkMode') === 'true';
+
+// טעינת Dark Mode
+if (isDarkMode) {
+  applyDarkMode();
 }
 
-// יצור נסיעה
-async function sendRide() {
+// 🌙 Toggle Dark Mode
+function toggleDarkMode() {
+  isDarkMode = !isDarkMode;
+  localStorage.setItem('darkMode', isDarkMode);
+  if (isDarkMode) {
+    applyDarkMode();
+  } else {
+    removeDarkMode();
+  }
+}
+
+function applyDarkMode() {
+  document.body.classList.add('dark-mode');
+  document.querySelectorAll('input, select, textarea').forEach(el => {
+    el.classList.add('dark-mode');
+  });
+  document.querySelectorAll('.card, .stat-card, .table-container, .modal-content').forEach(el => {
+    el.classList.add('dark-mode');
+  });
+}
+
+function removeDarkMode() {
+  document.body.classList.remove('dark-mode');
+  document.querySelectorAll('input, select, textarea').forEach(el => {
+    el.classList.remove('dark-mode');
+  });
+  document.querySelectorAll('.card, .stat-card, .table-container, .modal-content').forEach(el => {
+    el.classList.remove('dark-mode');
+  });
+}
+
+// 🚪 התנתקות
+async function logout() {
+  try {
+    await fetch('/api/logout', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token
+      }
+    });
+    localStorage.removeItem('authToken');
+    window.location.href = '/login.html';
+  } catch (err) {
+    console.error('❌ שגיאה:', err);
+  }
+}
+
+// 📑 Tab Navigation
+function showTab(tabName) {
+  // הסתר את כל ה-tabs
+  document.querySelectorAll('.tab-content').forEach(tab => {
+    tab.classList.remove('active');
+  });
+
+  // הסר את ה-active מ-buttons
+  document.querySelectorAll('.nav-tab').forEach(btn => {
+    btn.classList.remove('active');
+  });
+
+  // הצג את הTab הנבחר
+  document.getElementById(tabName).classList.add('active');
+
+  // סמן את הbutton
+  event.target.classList.add('active');
+
+  // טעין נתונים
+  if (tabName === 'dashboard') loadDashboard();
+  if (tabName === 'rides') loadRides();
+  if (tabName === 'drivers') loadDrivers();
+  if (tabName === 'groups') loadGroups();
+  if (tabName === 'admin') loadAdminContact();
+}
+
+// 📊 Dashboard
+async function loadDashboard() {
+  try {
+    const response = await fetch('/api/statistics', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const data = await response.json();
+
+    if (!data.ok) {
+      showToast('שגיאה בטעינת סטטיסטיקה', 'error');
+      return;
+    }
+
+    const stats = data.statistics;
+
+    // צור קארטים
+    const statsGrid = document.getElementById('statsGrid');
+    statsGrid.innerHTML = `
+      <div class="stat-card ${isDarkMode ? 'dark-mode' : ''}">
+        <div class="stat-icon">🚖</div>
+        <div class="stat-label">נסיעות כוללות</div>
+        <div class="stat-value">${stats.totalRides}</div>
+      </div>
+      <div class="stat-card ${isDarkMode ? 'dark-mode' : ''}">
+        <div class="stat-icon">✅</div>
+        <div class="stat-label">הסתיימו</div>
+        <div class="stat-value">${stats.completedRides}</div>
+      </div>
+      <div class="stat-card ${isDarkMode ? 'dark-mode' : ''}">
+        <div class="stat-icon">📊</div>
+        <div class="stat-label">שיעור השלמה</div>
+        <div class="stat-value">${stats.completionRate}</div>
+      </div>
+      <div class="stat-card ${isDarkMode ? 'dark-mode' : ''}">
+        <div class="stat-icon">👨‍💼</div>
+        <div class="stat-label">נהגים פעילים</div>
+        <div class="stat-value">${stats.activeDrivers}</div>
+      </div>
+      <div class="stat-card ${isDarkMode ? 'dark-mode' : ''}">
+        <div class="stat-icon">🚫</div>
+        <div class="stat-label">נהגים חסומים</div>
+        <div class="stat-value">${stats.blockedDrivers}</div>
+      </div>
+      <div class="stat-card ${isDarkMode ? 'dark-mode' : ''}">
+        <div class="stat-icon">💰</div>
+        <div class="stat-label">הרווח הכוללי</div>
+        <div class="stat-value">₪${stats.totalEarnings}</div>
+      </div>
+      <div class="stat-card ${isDarkMode ? 'dark-mode' : ''}">
+        <div class="stat-icon">💼</div>
+        <div class="stat-label">עמלות</div>
+        <div class="stat-value">₪${stats.totalCommission}</div>
+      </div>
+      <div class="stat-card ${isDarkMode ? 'dark-mode' : ''}">
+        <div class="stat-icon">👥</div>
+        <div class="stat-label">קבוצות WhatsApp</div>
+        <div class="stat-value">${stats.totalGroups}</div>
+      </div>
+    `;
+
+    // גרפים
+    drawCharts(stats);
+  } catch (err) {
+    console.error('❌ שגיאה בDashboard:', err);
+    showToast('שגיאה בטעינת Dashboard', 'error');
+  }
+}
+
+function drawCharts(stats) {
+  // נסיעות לפי סוג
+  const rideTypeData = stats.ridesByType || [];
+  const ctx1 = document.getElementById('rideTypeChart');
+  if (ctx1) {
+    new Chart(ctx1, {
+      type: 'doughnut',
+      data: {
+        labels: rideTypeData.map(d => translateRideType(d._id)),
+        datasets: [{
+          data: rideTypeData.map(d => d.count),
+          backgroundColor: ['#3498db', '#9b59b6', '#e74c3c']
+        }]
+      }
+    });
+  }
+
+  // הרווחים
+  const ctx2 = document.getElementById('earningsChart');
+  if (ctx2) {
+    new Chart(ctx2, {
+      type: 'bar',
+      data: {
+        labels: ['הרווח הכוללי', 'עמלות'],
+        datasets: [{
+          label: 'סכום (₪)',
+          data: [stats.totalEarnings, stats.totalCommission],
+          backgroundColor: ['#27ae60', '#e74c3c']
+        }]
+      }
+    });
+  }
+}
+
+function translateRideType(type) {
+  const types = {
+    'regular': '🚖 רגילה',
+    'vip': '👑 VIP',
+    'delivery': '📦 משלוח'
+  };
+  return types[type] || type;
+}
+
+// 🚖 Rides
+async function loadRides() {
+  try {
+    // טען קבוצות לה-dropdown
+    const groupsRes = await fetch('/api/groups', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const groupsData = await groupsRes.json();
+    const groupSelect = document.getElementById('sendToGroup');
+    if (groupsData.ok) {
+      groupSelect.innerHTML = '<option value="">בחר קבוצה...</option>' +
+        groupsData.groups.map(g => `<option value="${g._id}">${g.name} (${g.membersCount})</option>`).join('');
+    }
+
+    // טען נסיעות
+    const search = document.getElementById('rideSearch')?.value || '';
+    const status = document.getElementById('rideStatusFilter')?.value || '';
+
+    const params = new URLSearchParams();
+    if (search) params.append('search', search);
+    if (status) params.append('status', status);
+    params.append('limit', 100);
+
+    const response = await fetch(`/api/rides?${params}`, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+
+    const data = await response.json();
+
+    if (!data.ok) {
+      showToast('שגיאה בטעינת נסיעות', 'error');
+      return;
+    }
+
+    const tbody = document.getElementById('ridesTable');
+    if (data.rides.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">אין נסיעות</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = data.rides.map(ride => `
+      <tr>
+        <td>${ride.rideNumber || '#---'}</td>
+        <td>${ride.customerName}</td>
+        <td>${ride.pickup.substring(0, 15)} → ${ride.destination.substring(0, 15)}</td>
+        <td>${translateRideType(ride.rideType)}</td>
+        <td>₪${ride.price}</td>
+        <td>${ride.driverPhone || '---'}</td>
+        <td><span class="status-badge status-${ride.status}">${translateStatus(ride.status)}</span></td>
+        <td>
+          <button class="btn btn-small btn-primary" onclick="showRideDetails('${ride._id}')">👁️</button>
+          <button class="btn btn-small btn-success" onclick="updateRideStatus('${ride._id}')">📝</button>
+        </td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    console.error('❌ שגיאה:', err);
+    showToast('שגיאה בטעינת נסיעות', 'error');
+  }
+}
+
+async function loadGroups() {
+  try {
+    const response = await fetch('/api/groups', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const data = await response.json();
+
+    if (!data.ok) {
+      showToast('שגיאה בטעינת קבוצות', 'error');
+      return;
+    }
+
+    const tbody = document.getElementById('groupsTable');
+    if (data.groups.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">אין קבוצות</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = data.groups.map(group => `
+      <tr>
+        <td>${group.name}</td>
+        <td>${group.description || '---'}</td>
+        <td>${group.membersCount}</td>
+        <td><span class="status-badge ${group.isActive ? 'status-approved' : 'status-cancelled'}">${group.isActive ? '✅ פעיל' : '❌ לא פעיל'}</span></td>
+        <td>
+          <button class="btn btn-small btn-primary" onclick="editGroup('${group._id}')">✏️</button>
+          <button class="btn btn-small btn-danger" onclick="deleteGroup('${group._id}')">🗑️</button>
+        </td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    console.error('❌ שגיאה:', err);
+    showToast('שגיאה בטעינת קבוצות', 'error');
+  }
+}
+
+// 👨‍💼 Drivers
+async function loadDrivers() {
+  try {
+    const response = await fetch('/api/drivers', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const data = await response.json();
+
+    if (!data.ok) {
+      showToast('שגיאה בטעינת נהגים', 'error');
+      return;
+    }
+
+    const tbody = document.getElementById('driversTable');
+    if (data.drivers.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">אין נהגים</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = data.drivers.map(driver => {
+      const stars = '⭐'.repeat(Math.round(driver.rating));
+      return `
+        <tr style="${driver.isBlocked ? 'opacity: 0.6;' : ''}">
+          <td>${driver.name}</td>
+          <td>${driver.phone}</td>
+          <td>${stars} ${driver.rating}</td>
+          <td>${driver.totalRides}</td>
+          <td>₪${driver.totalEarnings}</td>
+          <td>
+            <span class="status-badge ${driver.isBlocked ? 'status-cancelled' : 'status-approved'}">
+              ${driver.isBlocked ? '🚫 חסום' : '✅ פעיל'}
+            </span>
+          </td>
+          <td>
+            ${driver.isBlocked ? 
+              `<button class="btn btn-small btn-success" onclick="unblockDriver('${driver._id}')">🔓 שחרר</button>` :
+              `<button class="btn btn-small btn-danger" onclick="promptBlockDriver('${driver._id}', '${driver.name}')">🚫 חסום</button>`
+            }
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('❌ שגיאה:', err);
+    showToast('שגיאה בטעינת נהגים', 'error');
+  }
+}
+
+// 📝 Ride Form
+document.getElementById('rideForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+
   const customerName = document.getElementById('customerName').value.trim();
   const customerPhone = document.getElementById('customerPhone').value.trim();
   const pickup = document.getElementById('pickup').value.trim();
   const destination = document.getElementById('destination').value.trim();
-  const scheduledTime = document.getElementById('scheduledTime').value.trim();
-  const price = parseFloat(document.getElementById('price').value) || 0;
+  const price = parseFloat(document.getElementById('price').value);
   const commissionRate = (parseFloat(document.getElementById('commissionRate').value) || 10) / 100;
-  const sendToRaw = document.getElementById('sendTo').value.trim();
   const rideType = document.getElementById('rideType').value;
-  const specialNotesRaw = document.getElementById('specialNotes').value;
-  const specialNotes = specialNotesRaw ? specialNotesRaw.split(',').map(s => s.trim()).filter(s => s) : [];
+  const sendToGroup = document.getElementById('sendToGroup').value;
+  const sendTo = document.getElementById('sendTo').value.split(',').map(s => s.trim()).filter(s => s.length > 0);
 
-  console.log("שולח נסיעה:", { customerName, pickup, destination });
-
-  if (!customerName || !customerPhone || !pickup || !destination) {
-    alert('❌ אנא מלא את כל השדות הנדרשים');
+  if (!customerName || !customerPhone || !pickup || !destination || !price) {
+    showToast('אנא מלא את כל השדות החובה', 'warning');
     return;
   }
-
-  const sendTo = sendToRaw.split(',').map(s => s.trim()).filter(s => s.length > 0);
-
-  if (sendTo.length === 0) {
-    alert('❌ אנא הזן לפחות טלפון אחד של נהג');
-    return;
-  }
-
-  const formattedPhones = sendTo.map(phone => {
-    if (!phone.startsWith('whatsapp:+')) {
-      return 'whatsapp:+' + phone;
-    }
-    return phone;
-  });
-
-  const data = {
-    customerName,
-    customerPhone,
-    pickup,
-    destination,
-    scheduledTime,
-    price,
-    commissionRate,
-    sendTo: formattedPhones,
-    rideType,
-    specialNotes
-  };
 
   const statusDiv = document.getElementById('sendStatus');
-  statusDiv.innerHTML = '<div class="status">⏳ שולח...</div>';
+  statusDiv.innerHTML = '<div class="toast info">⏳ שולח נסיעה...</div>';
 
   try {
-    console.log("קריאה ל-API עם token:", token.substring(0, 20) + "...");
-
     const response = await fetch('/api/rides', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + token
       },
-      body: JSON.stringify(data)
+      body: JSON.stringify({
+        customerName,
+        customerPhone,
+        pickup,
+        destination,
+        price,
+        commissionRate,
+        rideType,
+        sendToGroup,
+        sendTo
+      })
     });
-
-    console.log("סטטוס תשובה:", response.status);
 
     const result = await response.json();
 
-    console.log("תוצאה מהשרת:", result);
+    if (result.ok) {
+      showToast('✅ נסיעה נשלחה בהצלחה!', 'success');
+      document.getElementById('rideForm').reset();
+      statusDiv.innerHTML = '';
+      loadRides();
+    } else {
+      showToast('❌ ' + result.error, 'error');
+    }
+  } catch (err) {
+    console.error('❌ שגיאה:', err);
+    showToast('שגיאה בשליחת נסיעה', 'error');
+  }
+});
+
+// 📝 Group Form
+document.getElementById('groupForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const name = document.getElementById('groupName').value.trim();
+  const description = document.getElementById('groupDescription').value.trim();
+
+  if (!name || currentPhoneList.length === 0) {
+    showToast('אנא מלא שם וטלפונים', 'warning');
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/groups', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify({
+        name,
+        description,
+        phoneNumbers: currentPhoneList
+      })
+    });
+
+    const result = await response.json();
 
     if (result.ok) {
-      statusDiv.innerHTML = '<div class="status success">✅ נסיעה נשלחה בהצלחה!</div>';
-      
-      document.getElementById('customerName').value = '';
-      document.getElementById('customerPhone').value = '';
-      document.getElementById('pickup').value = '';
-      document.getElementById('destination').value = '';
-      document.getElementById('scheduledTime').value = '';
-      document.getElementById('specialNotes').value = '';
-      document.getElementById('sendTo').value = '';
-      
-      setTimeout(() => {
-        loadRides();
-        statusDiv.innerHTML = '';
-      }, 2000);
+      showToast('✅ קבוצה נוצרה בהצלחה!', 'success');
+      document.getElementById('groupForm').reset();
+      currentPhoneList = [];
+      document.getElementById('phoneList').innerHTML = '';
+      loadGroups();
     } else {
-      statusDiv.innerHTML = `<div class="status error">❌ שגיאה: ${result.error}</div>`;
+      showToast('❌ ' + result.error, 'error');
     }
   } catch (err) {
     console.error('❌ שגיאה:', err);
-    statusDiv.innerHTML = `<div class="status error">❌ שגיאה בתקשורת</div>`;
+    showToast('שגיאה ביצירת קבוצה', 'error');
   }
+});
+
+// ➕ הוסף טלפון לרשימה
+function addPhoneToList() {
+  const phone = document.getElementById('newPhone').value.trim();
+  if (!phone) {
+    showToast('אנא הזן טלפון', 'warning');
+    return;
+  }
+
+  if (currentPhoneList.includes(phone)) {
+    showToast('הטלפון כבר ברשימה', 'warning');
+    return;
+  }
+
+  currentPhoneList.push(phone);
+  document.getElementById('newPhone').value = '';
+  renderPhoneList();
 }
 
-// טעינת נסיעות
-async function loadRides() {
+function renderPhoneList() {
+  const phoneList = document.getElementById('phoneList');
+  phoneList.innerHTML = currentPhoneList.map(phone => `
+    <div class="phone-tag">
+      ${phone}
+      <button type="button" onclick="removePhone('${phone}')">×</button>
+    </div>
+  `).join('');
+}
+
+function removePhone(phone) {
+  currentPhoneList = currentPhoneList.filter(p => p !== phone);
+  renderPhoneList();
+}
+
+// ⚙️ Admin Contact
+document.getElementById('adminForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const adminName = document.getElementById('adminName').value.trim();
+  const adminPhone = document.getElementById('adminPhone').value.trim();
+  const adminEmail = document.getElementById('adminEmail').value.trim();
+  const appealMessage = document.getElementById('appealMessage').value.trim();
+
   try {
-    const response = await fetch('/api/rides', {
-      method: 'GET',
+    const response = await fetch('/api/admin-contact', {
+      method: 'PATCH',
       headers: {
+        'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + token
-      }
+      },
+      body: JSON.stringify({
+        adminName,
+        adminPhone,
+        adminEmail,
+        appealMessage
+      })
     });
 
-    if (response.status === 401 || response.status === 403) {
-      localStorage.removeItem('authToken');
-      window.location.href = '/login.html';
-      return;
+    const result = await response.json();
+
+    if (result.ok) {
+      showToast('✅ פרטים שמורים!', 'success');
+    } else {
+      showToast('❌ ' + result.error, 'error');
     }
-
-    const rides = await response.json();
-
-    updateStatistics(rides);
-
-    const tbody = document.getElementById('ridesBody');
-    
-    if (rides.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">אין נסיעות עדיין</td></tr>';
-      return;
-    }
-
-    let html = '';
-    rides.forEach(ride => {
-      const statusClass = `status-${ride.status}`;
-      
-      html += `
-        <tr>
-          <td>${ride._id.substring(0, 8)}...</td>
-          <td>${ride.customerName}</td>
-          <td>${ride.pickup.substring(0, 15)}</td>
-          <td>${ride.destination.substring(0, 15)}</td>
-          <td>${ride.rideType === 'vip' ? '👑 VIP' : ride.rideType === 'delivery' ? '📦 משלוח' : '🚖 רגילה'}</td>
-          <td>${ride.driverPhone ? ride.driverPhone.substring(-10) : '---'}</td>
-          <td><span class="status-badge ${statusClass}">${translateStatus(ride.status)}</span></td>
-        </tr>
-      `;
-    });
-
-    tbody.innerHTML = html;
   } catch (err) {
-    console.error('❌ שגיאה בטעינה:', err);
+    console.error('❌ שגיאה:', err);
+    showToast('שגיאה בשמירת פרטים', 'error');
   }
-}
+});
 
-// טעינת נהגים
-async function loadDrivers() {
+// טעינת פרטי אדמין
+async function loadAdminContact() {
   try {
-    const response = await fetch('/api/drivers', {
-      method: 'GET',
-      headers: {
-        'Authorization': 'Bearer ' + token
-      }
+    const response = await fetch('/api/admin-contact', {
+      headers: { 'Authorization': 'Bearer ' + token }
     });
+    const data = await response.json();
 
-    const drivers = await response.json();
-
-    const tbody = document.getElementById('driversBody');
-    
-    if (drivers.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">אין נהגים</td></tr>';
-      return;
+    if (data.ok) {
+      document.getElementById('adminName').value = data.contact.adminName || '';
+      document.getElementById('adminPhone').value = data.contact.adminPhone || '';
+      document.getElementById('adminEmail').value = data.contact.adminEmail || '';
+      document.getElementById('appealMessage').value = data.contact.appealMessage || '';
     }
-
-    let html = '';
-    drivers.forEach(driver => {
-      const stars = '⭐'.repeat(Math.round(driver.rating));
-      const statusClass = driver.isBlocked ? 'blocked' : '';
-      
-      html += `
-        <tr class="${statusClass}">
-          <td>${driver.name}</td>
-          <td>${driver.phone}</td>
-          <td class="rating">${stars} ${driver.rating}</td>
-          <td>${driver.totalRides}</td>
-          <td>₪${driver.totalEarnings}</td>
-          <td>${driver.isBlocked ? '🚫 חסום' : '✅ פעיל'}</td>
-          <td>
-            <div class="action-buttons">
-              ${driver.isBlocked ? 
-                `<button onclick="unblockDriver('${driver._id}')">הסר חסימה</button>` :
-                `<button onclick="blockDriver('${driver._id}')">חסום</button>`
-              }
-            </div>
-          </td>
-        </tr>
-      `;
-    });
-
-    tbody.innerHTML = html;
   } catch (err) {
     console.error('❌ שגיאה:', err);
   }
 }
 
-// טעינת נהגים חסומים
-async function loadBlockedDrivers() {
-  try {
-    const response = await fetch('/api/drivers', {
-      method: 'GET',
-      headers: {
-        'Authorization': 'Bearer ' + token
-      }
-    });
-
-    const drivers = await response.json();
-    const blocked = drivers.filter(d => d.isBlocked);
-
-    const tbody = document.getElementById('blockedBody');
-    
-    if (blocked.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">אין נהגים חסומים</td></tr>';
-      return;
-    }
-
-    let html = '';
-    blocked.forEach(driver => {
-      const blockedDate = new Date(driver.blockedAt).toLocaleDateString('he-IL');
-      
-      html += `
-        <tr class="blocked">
-          <td>${driver.name}</td>
-          <td>${driver.phone}</td>
-          <td>${driver.blockedReason || 'לא צוינה'}</td>
-          <td>${blockedDate}</td>
-          <td>
-            <button onclick="unblockDriver('${driver._id}')" style="background: #28a745;">הסר חסימה</button>
-          </td>
-        </tr>
-      `;
-    });
-
-    tbody.innerHTML = html;
-  } catch (err) {
-    console.error('❌ שגיאה:', err);
-  }
-}
-
-// חסימת נהג
-async function blockDriver(driverId) {
-  const reason = prompt('סיבת החסימה:');
+// 🚫 חסום נהג
+async function promptBlockDriver(driverId, driverName) {
+  const reason = prompt(`הזן סיבה לחסימת ${driverName}:`);
   if (!reason) return;
 
   try {
@@ -263,153 +549,405 @@ async function blockDriver(driverId) {
       body: JSON.stringify({ reason })
     });
 
-    if (response.ok) {
-      alert('✅ נהג חסום בהצלחה');
+    const result = await response.json();
+
+    if (result.ok) {
+      showToast(`✅ ${driverName} חסום!`, 'success');
       loadDrivers();
-      loadBlockedDrivers();
+    } else {
+      showToast('❌ ' + result.error, 'error');
     }
   } catch (err) {
-    alert('❌ שגיאה בחסימה');
+    console.error('❌ שגיאה:', err);
+    showToast('שגיאה בחסימה', 'error');
   }
 }
 
-// הסרת חסימה
+// 🔓 שחרר נהג
 async function unblockDriver(driverId) {
   try {
     const response = await fetch(`/api/drivers/${driverId}/unblock`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + token
       }
     });
 
-    if (response.ok) {
-      alert('✅ חסימה הוסרה');
+    const result = await response.json();
+
+    if (result.ok) {
+      showToast('✅ נהג שוחרר!', 'success');
       loadDrivers();
-      loadBlockedDrivers();
+    } else {
+      showToast('❌ ' + result.error, 'error');
     }
   } catch (err) {
-    alert('❌ שגיאה בהסרת חסימה');
+    console.error('❌ שגיאה:', err);
+    showToast('שגיאה בשחרור', 'error');
   }
 }
 
-// סטטיסטיקה
-async function loadStats() {
+// 👁️ הצג פרטי נסיעה
+async function showRideDetails(rideId) {
   try {
-    const response = await fetch('/api/rides', {
-      method: 'GET',
-      headers: {
-        'Authorization': 'Bearer ' + token
-      }
+    const response = await fetch(`/api/rides?limit=1000`, {
+      headers: { 'Authorization': 'Bearer ' + token }
     });
+    const data = await response.json();
+    const ride = data.rides.find(r => r._id === rideId);
 
-    const rides = await response.json();
+    if (!ride) {
+      showToast('נסיעה לא נמצאה', 'error');
+      return;
+    }
+
+    const statusOptions = ["created", "sent", "approved", "enroute", "arrived", "finished", "commission_paid", "cancelled"];
     
-    const dResponse = await fetch('/api/drivers', {
-      method: 'GET',
-      headers: {
-        'Authorization': 'Bearer ' + token
-      }
-    });
+    const content = `
+      <div class="ride-details">
+        <div class="detail-row">
+          <div class="detail-label">מספר סידורי</div>
+          <div class="detail-value">${ride.rideNumber || '#---'}</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">שם לקוח</div>
+          <div class="detail-value">${ride.customerName}</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">טלפון לקוח</div>
+          <div class="detail-value">${ride.customerPhone}</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">מיקום איסוף</div>
+          <div class="detail-value">${ride.pickup}</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">יעד</div>
+          <div class="detail-value">${ride.destination}</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">מחיר</div>
+          <div class="detail-value">₪${ride.price}</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">עמלה</div>
+          <div class="detail-value">₪${ride.commissionAmount}</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">סוג נסיעה</div>
+          <div class="detail-value">${translateRideType(ride.rideType)}</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">נהג</div>
+          <div class="detail-value">${ride.driverPhone || '---'}</div>
+        </div>
+        <div class="detail-row">
+          <div class="detail-label">סטטוס</div>
+          <div class="detail-value"><span class="status-badge status-${ride.status}">${translateStatus(ride.status)}</span></div>
+        </div>
+      </div>
 
-    const drivers = await dResponse.json();
+      <div style="margin-top: 20px;">
+        <h4>📝 היסטוריה</h4>
+        <div class="history-list">
+          ${ride.history.map(h => `
+            <div class="history-item ${isDarkMode ? 'dark-mode' : ''}">
+              <div class="history-icon">📌</div>
+              <div class="history-content">
+                <strong>${translateStatus(h.status)}</strong> - ${h.by} (${new Date(h.timestamp).toLocaleString('he-IL')})
+                ${h.details ? `<br>${h.details}` : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
 
-    const stats = {
-      totalRides: rides.length,
-      completed: rides.filter(r => r.status === 'commission_paid').length,
-      totalRevenue: rides.filter(r => r.status === 'commission_paid').reduce((sum, r) => sum + (r.commissionAmount || 0), 0),
-      topDriver: drivers.reduce((top, d) => d.totalRides > (top?.totalRides || 0) ? d : top, null),
-      avgRating: (drivers.reduce((sum, d) => sum + d.rating, 0) / drivers.length).toFixed(1),
-      vipRides: rides.filter(r => r.rideType === 'vip').length
-    };
-
-    const html = `
-      <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;">
-        <div style="background: #e3f2fd; padding: 20px; border-radius: 8px;">
-          <h3>📊 סה"כ נסיעות</h3>
-          <p style="font-size: 32px; color: #1976d2; font-weight: bold;">${stats.totalRides}</p>
-        </div>
-        <div style="background: #c8e6c9; padding: 20px; border-radius: 8px;">
-          <h3>✅ הושלמו</h3>
-          <p style="font-size: 32px; color: #388e3c; font-weight: bold;">${stats.completed}</p>
-        </div>
-        <div style="background: #fff9c4; padding: 20px; border-radius: 8px;">
-          <h3>💰 הכנסה</h3>
-          <p style="font-size: 32px; color: #f57f17; font-weight: bold;">₪${stats.totalRevenue}</p>
-        </div>
-        <div style="background: #ffe0b2; padding: 20px; border-radius: 8px;">
-          <h3>👑 VIP נסיעות</h3>
-          <p style="font-size: 32px; color: #e65100; font-weight: bold;">${stats.vipRides}</p>
-        </div>
-        <div style="background: #f8bbd0; padding: 20px; border-radius: 8px;">
-          <h3>⭐ דירוג ממוצע</h3>
-          <p style="font-size: 32px; color: #c2185b; font-weight: bold;">${stats.avgRating}</p>
-        </div>
-        <div style="background: #b2dfdb; padding: 20px; border-radius: 8px;">
-          <h3>🏆 נהג מוביל</h3>
-          <p style="font-size: 20px; color: #00695c; font-weight: bold;">${stats.topDriver?.name || 'אין'}</p>
-          <p>${stats.topDriver?.totalRides || 0} נסיעות</p>
-        </div>
+      <div style="margin-top: 20px;">
+        <label>🔄 שנה סטטוס:</label>
+        <select id="newStatus">
+          ${statusOptions.map(s => `<option value="${s}" ${s === ride.status ? 'selected' : ''}>${translateStatus(s)}</option>`).join('')}
+        </select>
+        <button class="btn btn-success" style="margin-top: 10px; width: 100%;" onclick="updateRideStatus('${rideId}')">💾 עדכן</button>
       </div>
     `;
 
-    document.getElementById('statsContent').innerHTML = html;
+    document.getElementById('rideDetailsContent').innerHTML = content;
+    document.getElementById('rideModal').classList.add('active');
+    currentRideId = rideId;
   } catch (err) {
     console.error('❌ שגיאה:', err);
+    showToast('שגיאה בטעינת פרטים', 'error');
   }
 }
 
-function updateStatistics(rides) {
-  const stats = {
-    created: rides.filter(r => r.status === 'created').length,
-    sent: rides.filter(r => r.status === 'sent').length,
-    approved: rides.filter(r => r.status === 'approved').length,
-    finished: rides.filter(r => r.status === 'finished').length,
-    commission_paid: rides.filter(r => r.status === 'commission_paid').length,
-  };
+// 📝 עדכן סטטוס נסיעה
+async function updateRideStatus(rideId) {
+  const status = document.getElementById('newStatus')?.value;
 
-  const totalRevenue = rides
-    .filter(r => r.status === 'commission_paid')
-    .reduce((sum, r) => sum + (r.commissionAmount || 0), 0);
+  if (!status) {
+    showToast('בחר סטטוס', 'warning');
+    return;
+  }
 
-  const html = `
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-      <div style="background: #fff9c4; padding: 10px; border-radius: 5px;">
-        <strong>📝 חדשה:</strong> ${stats.created}
-      </div>
-      <div style="background: #e3f2fd; padding: 10px; border-radius: 5px;">
-        <strong>📨 שנשלחה:</strong> ${stats.sent}
-      </div>
-      <div style="background: #c8e6c9; padding: 10px; border-radius: 5px;">
-        <strong>✅ אושרה:</strong> ${stats.approved}
-      </div>
-      <div style="background: #ffe0b2; padding: 10px; border-radius: 5px;">
-        <strong>🏁 סגורה:</strong> ${stats.finished}
-      </div>
-      <div style="background: #a5d6a7; padding: 10px; border-radius: 5px;">
-        <strong>💰 תשלום:</strong> ${stats.commission_paid}
-      </div>
-      <div style="background: #ffb74d; padding: 10px; border-radius: 5px; font-weight: bold;">
-        <strong>💵 הכנסה:</strong> ₪${totalRevenue}
-      </div>
-    </div>
-  `;
+  try {
+    const response = await fetch(`/api/rides/${rideId}/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify({ status })
+    });
 
-  document.getElementById('statistics').innerHTML = html;
+    const result = await response.json();
+
+    if (result.ok) {
+      showToast('✅ סטטוס עודכן!', 'success');
+      closeModal('rideModal');
+      loadRides();
+    } else {
+      showToast('❌ ' + result.error, 'error');
+    }
+  } catch (err) {
+    console.error('❌ שגיאה:', err);
+    showToast('שגיאה בעדכון', 'error');
+  }
 }
 
+// 📥 ייצוא ל-Excel
+function exportRidesToCSV() {
+  const table = document.getElementById('ridesTable');
+  if (!table.rows.length) {
+    showToast('אין נתונים לייצוא', 'warning');
+    return;
+  }
+
+  let csv = 'מספר,לקוח,מ,עד,סוג,מחיר,עמלה,נהג,סטטוס\n';
+  
+  for (let row of table.rows) {
+    const cells = [];
+    for (let cell of row.cells) {
+      cells.push('"' + cell.textContent + '"');
+    }
+    csv += cells.join(',') + '\n';
+  }
+
+  const link = document.createElement('a');
+  link.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+  link.download = `rides-${new Date().toISOString().split('T')[0]}.csv`;
+  link.click();
+
+  showToast('✅ ייצוא הסתיים!', 'success');
+}
+
+// 🗑️ מחק קבוצה
+async function deleteGroup(groupId) {
+  if (!confirm('בטוח שברצונך למחוק קבוצה זו?')) return;
+
+  try {
+    const response = await fetch(`/api/groups/${groupId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+
+    const result = await response.json();
+
+    if (result.ok) {
+      showToast('✅ קבוצה נמחקה!', 'success');
+      loadGroups();
+    } else {
+      showToast('❌ ' + result.error, 'error');
+    }
+  } catch (err) {
+    console.error('❌ שגיאה:', err);
+    showToast('שגיאה במחיקה', 'error');
+  }
+}
+
+// ✏️ ערוך קבוצה
+async function editGroup(groupId) {
+  try {
+    const response = await fetch(`/api/groups`, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const data = await response.json();
+    const group = data.groups.find(g => g._id === groupId);
+
+    if (!group) {
+      showToast('קבוצה לא נמצאה', 'error');
+      return;
+    }
+
+    const content = `
+      <div class="form-group">
+        <label>שם הקבוצה</label>
+        <input type="text" id="editGroupName" value="${group.name}" required>
+      </div>
+      <div class="form-group">
+        <label>תיאור</label>
+        <input type="text" id="editGroupDesc" value="${group.description || ''}">
+      </div>
+      <div class="form-group">
+        <label>הוסף טלפון חדש</label>
+        <div class="phone-input-group">
+          <input type="tel" id="addNewPhone" placeholder="05012345678">
+          <button type="button" class="btn btn-primary btn-small" onclick="addPhoneToGroup('${groupId}')">➕</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>טלפונים בקבוצה</label>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+          ${group.phoneNumbers.map(phone => `
+            <div class="phone-tag">
+              ${phone}
+              <button type="button" onclick="removePhoneFromGroup('${groupId}', '${phone}')">×</button>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+      <button class="btn btn-success" style="width: 100%; margin-top: 20px;" onclick="saveGroupChanges('${groupId}')">💾 שמור</button>
+    `;
+
+    document.getElementById('groupDetailsContent').innerHTML = content;
+    document.getElementById('groupModal').classList.add('active');
+    currentGroupId = groupId;
+  } catch (err) {
+    console.error('❌ שגיאה:', err);
+    showToast('שגיאה בטעינת קבוצה', 'error');
+  }
+}
+
+// ➕ הוסף טלפון לקבוצה
+async function addPhoneToGroup(groupId) {
+  const phone = document.getElementById('addNewPhone').value.trim();
+  if (!phone) return;
+
+  try {
+    const response = await fetch(`/api/groups/${groupId}/add-phone`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify({ phone })
+    });
+
+    const result = await response.json();
+
+    if (result.ok) {
+      editGroup(groupId);
+      showToast('✅ טלפון נוסף!', 'success');
+    } else {
+      showToast('❌ ' + result.error, 'error');
+    }
+  } catch (err) {
+    console.error('❌ שגיאה:', err);
+    showToast('שגיאה בהוספה', 'error');
+  }
+}
+
+// ➖ הסר טלפון מקבוצה
+async function removePhoneFromGroup(groupId, phone) {
+  try {
+    const response = await fetch(`/api/groups/${groupId}/remove-phone`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify({ phone })
+    });
+
+    const result = await response.json();
+
+    if (result.ok) {
+      editGroup(groupId);
+      showToast('✅ טלפון הוסר!', 'success');
+    } else {
+      showToast('❌ ' + result.error, 'error');
+    }
+  } catch (err) {
+    console.error('❌ שגיאה:', err);
+    showToast('שגיאה בהסרה', 'error');
+  }
+}
+
+// 💾 שמור שינויים בקבוצה
+async function saveGroupChanges(groupId) {
+  const name = document.getElementById('editGroupName')?.value.trim();
+  const description = document.getElementById('editGroupDesc')?.value.trim();
+
+  if (!name) {
+    showToast('שם קבוצה נדרש', 'warning');
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/groups/${groupId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify({ name, description })
+    });
+
+    const result = await response.json();
+
+    if (result.ok) {
+      showToast('✅ שינויים שמורים!', 'success');
+      closeModal('groupModal');
+      loadGroups();
+    } else {
+      showToast('❌ ' + result.error, 'error');
+    }
+  } catch (err) {
+    console.error('❌ שגיאה:', err);
+    showToast('שגיאה בשמירה', 'error');
+  }
+}
+
+// 🔄 Modal
+function closeModal(modalId) {
+  document.getElementById(modalId).classList.remove('active');
+}
+
+// 🔔 Toast Notifications
+function showToast(message, type = 'info') {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    toast.remove();
+  }, 3000);
+}
+
+// 🔤 Status Translation
 function translateStatus(status) {
-  const translations = {
-    'created': '✏️ חדשה',
-    'sent': '📨 שנשלחה',
+  const statuses = {
+    'created': '✏️ נוצרה',
+    'sent': '📤 נשלחה',
     'approved': '✅ אושרה',
     'enroute': '🚗 בדרך',
     'arrived': '📍 הגיעה',
-    'finished': '🏁 סגורה',
-    'commission_paid': '💰 תשלום ✓'
+    'finished': '🎉 הסתיימה',
+    'commission_paid': '💰 עמלה שולמה',
+    'cancelled': '❌ בוטלה'
   };
-  return translations[status] || status;
+  return statuses[status] || status;
 }
 
-setInterval(loadRides, 5000);
+// 🔄 Auto-refresh כל 30 שניות
+setInterval(() => {
+  if (document.getElementById('dashboard').classList.contains('active')) {
+    loadDashboard();
+  }
+}, 30000);
+
+// טעינה ראשונית
+window.addEventListener('load', () => {
+  loadDashboard();
+});

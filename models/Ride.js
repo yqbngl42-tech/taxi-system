@@ -1,6 +1,12 @@
 import mongoose from "mongoose";
 
 const RideSchema = new mongoose.Schema({
+  rideNumber: {
+    type: String,
+    unique: true,
+    sparse: true,
+    trim: true
+  },
   customerName: {
     type: String,
     required: true,
