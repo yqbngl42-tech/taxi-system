@@ -1,5 +1,7 @@
 // 🔐 בדוק תוקף ואבטחה
 const token = localStorage.getItem('authToken');
+console.log("Token בזיכרון:", token ? "✅ יש" : "❌ אין");
+
 if (!token) {
   window.location.href = '/login.html';
 }
@@ -8,24 +10,6 @@ if (!token) {
 function logout() {
   localStorage.removeItem('authToken');
   window.location.href = '/login.html';
-}
-
-// 🔐 שלח token בכל בקשה
-async function fetchWithAuth(url, options = {}) {
-  const headers = options.headers || {};
-  headers['Authorization'] = `Bearer ${token}`;
-  
-  const response = await fetch(url, {
-    ...options,
-    headers
-  });
-  
-  if (response.status === 401 || response.status === 403) {
-    localStorage.removeItem('authToken');
-    window.location.href = '/login.html';
-  }
-  
-  return response;
 }
 
 // יצור נסיעה
@@ -41,6 +25,8 @@ async function sendRide() {
   const rideType = document.getElementById('rideType').value;
   const specialNotesRaw = document.getElementById('specialNotes').value;
   const specialNotes = specialNotesRaw ? specialNotesRaw.split(',').map(s => s.trim()).filter(s => s) : [];
+
+  console.log("שולח נסיעה:", { customerName, pickup, destination });
 
   if (!customerName || !customerPhone || !pickup || !destination) {
     alert('❌ אנא מלא את כל השדות הנדרשים');
@@ -78,13 +64,22 @@ async function sendRide() {
   statusDiv.innerHTML = '<div class="status">⏳ שולח...</div>';
 
   try {
-    const response = await fetchWithAuth('/api/rides', {
+    console.log("קריאה ל-API עם token:", token.substring(0, 20) + "...");
+
+    const response = await fetch('/api/rides', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
       body: JSON.stringify(data)
     });
 
+    console.log("סטטוס תשובה:", response.status);
+
     const result = await response.json();
+
+    console.log("תוצאה מהשרת:", result);
 
     if (result.ok) {
       statusDiv.innerHTML = '<div class="status success">✅ נסיעה נשלחה בהצלחה!</div>';
@@ -105,7 +100,7 @@ async function sendRide() {
       statusDiv.innerHTML = `<div class="status error">❌ שגיאה: ${result.error}</div>`;
     }
   } catch (err) {
-    console.error('שגיאה:', err);
+    console.error('❌ שגיאה:', err);
     statusDiv.innerHTML = `<div class="status error">❌ שגיאה בתקשורת</div>`;
   }
 }
@@ -113,7 +108,19 @@ async function sendRide() {
 // טעינת נסיעות
 async function loadRides() {
   try {
-    const response = await fetchWithAuth('/api/rides');
+    const response = await fetch('/api/rides', {
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer ' + token
+      }
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      localStorage.removeItem('authToken');
+      window.location.href = '/login.html';
+      return;
+    }
+
     const rides = await response.json();
 
     updateStatistics(rides);
@@ -144,14 +151,20 @@ async function loadRides() {
 
     tbody.innerHTML = html;
   } catch (err) {
-    console.error('שגיאה בטעינה:', err);
+    console.error('❌ שגיאה בטעינה:', err);
   }
 }
 
 // טעינת נהגים
 async function loadDrivers() {
   try {
-    const response = await fetchWithAuth('/api/drivers');
+    const response = await fetch('/api/drivers', {
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer ' + token
+      }
+    });
+
     const drivers = await response.json();
 
     const tbody = document.getElementById('driversBody');
@@ -188,14 +201,20 @@ async function loadDrivers() {
 
     tbody.innerHTML = html;
   } catch (err) {
-    console.error('שגיאה:', err);
+    console.error('❌ שגיאה:', err);
   }
 }
 
 // טעינת נהגים חסומים
 async function loadBlockedDrivers() {
   try {
-    const response = await fetchWithAuth('/api/drivers');
+    const response = await fetch('/api/drivers', {
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer ' + token
+      }
+    });
+
     const drivers = await response.json();
     const blocked = drivers.filter(d => d.isBlocked);
 
@@ -225,7 +244,7 @@ async function loadBlockedDrivers() {
 
     tbody.innerHTML = html;
   } catch (err) {
-    console.error('שגיאה:', err);
+    console.error('❌ שגיאה:', err);
   }
 }
 
@@ -235,9 +254,12 @@ async function blockDriver(driverId) {
   if (!reason) return;
 
   try {
-    const response = await fetchWithAuth(`/api/drivers/${driverId}/block`, {
+    const response = await fetch(`/api/drivers/${driverId}/block`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
       body: JSON.stringify({ reason })
     });
 
@@ -254,9 +276,12 @@ async function blockDriver(driverId) {
 // הסרת חסימה
 async function unblockDriver(driverId) {
   try {
-    const response = await fetchWithAuth(`/api/drivers/${driverId}/unblock`, {
+    const response = await fetch(`/api/drivers/${driverId}/unblock`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      }
     });
 
     if (response.ok) {
@@ -272,9 +297,22 @@ async function unblockDriver(driverId) {
 // סטטיסטיקה
 async function loadStats() {
   try {
-    const response = await fetchWithAuth('/api/rides');
+    const response = await fetch('/api/rides', {
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer ' + token
+      }
+    });
+
     const rides = await response.json();
-    const dResponse = await fetchWithAuth('/api/drivers');
+    
+    const dResponse = await fetch('/api/drivers', {
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer ' + token
+      }
+    });
+
     const drivers = await dResponse.json();
 
     const stats = {
@@ -318,7 +356,7 @@ async function loadStats() {
 
     document.getElementById('statsContent').innerHTML = html;
   } catch (err) {
-    console.error('שגיאה:', err);
+    console.error('❌ שגיאה:', err);
   }
 }
 
