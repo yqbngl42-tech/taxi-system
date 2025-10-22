@@ -6,7 +6,7 @@ const client = Twilio(
   process.env.TWILIO_AUTH_TOKEN
 );
 
-const fromWhatsApp = process.env.TWILIO_WHATSAPP_FROM || "whatsapp:+13156311617";
+const fromWhatsApp = process.env.TWILIO_WHATSAPP_FROM || "whatsapp:+14155238886";
 
 export default {
   // 📞 שליחת הודעה ב-WhatsApp
