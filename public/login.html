@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>כניסה - תחנת מוניות</title>
+  <script>
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      window.location.href = '/index.html';
+    }
+  </script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+    
+    .login-container {
+      background: white;
+      border-radius: 20px;
+      padding: 40px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      width: 100%;
+      max-width: 400px;
+      animation: slideIn 0.5s ease-out;
+    }
+    
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(-30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    
+    .logo {
+      text-align: center;
+      margin-bottom: 30px;
+      font-size: 60px;
+    }
+    
+    h1 {
+      color: #333;
+      text-align: center;
+      margin-bottom: 10px;
+      font-size: 24px;
+    }
+    
+    .subtitle {
+      color: #666;
+      text-align: center;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+    
+    .form-group {
+      margin-bottom: 20px;
+    }
+    
+    label {
+      display: block;
+      color: #333;
+      font-weight: bold;
+      margin-bottom: 8px;
+    }
+    
+    input[type="password"] {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      font-size: 16px;
+      transition: 0.3s;
+      font-family: inherit;
+    }
+    
+    input[type="password"]:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 10px rgba(102, 126, 234, 0.3);
+    }
+    
+    button {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: 0.3s;
+      margin-top: 10px;
+    }
+    
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+    }
+    
+    button:active {
+      transform: translateY(0);
+    }
+    
+    .error {
+      background: #f8d7da;
+      color: #721c24;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      border: 1px solid #f5c6cb;
+      display: none;
+    }
+    
+    .loading {
+      display: none;
+      text-align: center;
+      color: #667eea;
+      font-weight: bold;
+    }
+    
+    .footer {
+      text-align: center;
+      margin-top: 20px;
+      color: #999;
+      font-size: 12px;
+    }
+    
+    .security-info {
+      background: #e3f2fd;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 20px;
+      font-size: 12px;
+      color: #1565c0;
+    }
+    
+    .security-info h3 {
+      margin-bottom: 8px;
+      color: #0d47a1;
+    }
+    
+    .security-info ul {
+      list-style: none;
+      padding-right: 20px;
+    }
+    
+    .security-info li {
+      margin: 5px 0;
+    }
+    
+    .security-info li:before {
+      content: "✓ ";
+      color: #4caf50;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <div class="logo">🚖</div>
+    <h1>תחנת מוניות</h1>
+    <p class="subtitle">מערכת ניהול מאובטחת</p>
+    
+    <form id="loginForm" onsubmit="handleLogin(event)">
+      <div class="error" id="errorMessage"></div>
+      
+      <div class="form-group">
+        <label for="password">סיסמה</label>
+        <input 
+          type="password" 
+          id="password" 
+          placeholder="הזן סיסמה" 
+          required 
+          autofocus
+        >
+      </div>
+      
+      <button type="submit">כניסה</button>
+      <div class="loading" id="loading">טוען...</div>
+    </form>
+    
+    <div class="security-info">
+      <h3>אבטחה</h3>
+      <ul>
+        <li>סיסמה מאובטחת</li>
+        <li>טוקן 24 שעות</li>
+        <li>הצפנה SSL</li>
+        <li>Webhook מאושר</li>
+      </ul>
+    </div>
+    
+    <div class="footer">
+      © 2025 תחנת מוניות
+    </div>
+  </div>
+
+  <script>
+    async function handleLogin(event) {
+      event.preventDefault();
+      
+      const password = document.getElementById('password').value;
+      const errorDiv = document.getElementById('errorMessage');
+      const loadingDiv = document.getElementById('loading');
+      
+      errorDiv.style.display = 'none';
+      loadingDiv.style.display = 'block';
+      
+      try {
+        const response = await fetch('/api/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ password })
+        });
+        
+        const result = await response.json();
+        
+        if (result.ok) {
+          localStorage.setItem('authToken', result.token);
+          window.location.href = '/index.html';
+        } else {
+          errorDiv.textContent = '❌ ' + (result.error || 'סיסמה לא נכונה');
+          errorDiv.style.display = 'block';
+          loadingDiv.style.display = 'none';
+        }
+      } catch (err) {
+        errorDiv.textContent = '❌ שגיאה בתקשורת עם השרת';
+        errorDiv.style.display = 'block';
+        loadingDiv.style.display = 'none';
+        console.error('שגיאה:', err);
+      }
+    }
+    
+    document.getElementById('password').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        document.getElementById('loginForm').dispatchEvent(new Event('submit'));
+      }
+    });
+  </script>
+</body>
+</html>

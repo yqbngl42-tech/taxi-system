@@ -1,6 +1,5 @@
 import mongoose from "mongoose";
 
-// 💰 מבנה תשלום בDatabase
 const PaymentSchema = new mongoose.Schema({
   rideId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -18,13 +17,31 @@ const PaymentSchema = new mongoose.Schema({
   method: {
     type: String,
     enum: ["bit", "paybox", "cash"],
-    default: "bit"
+    default: "bit",
+    required: true
   },
   paidAt: {
     type: Date,
+    default: Date.now,
+    required: true
+  },
+  txMeta: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null
+  },
+  status: {
+    type: String,
+    enum: ["pending", "completed", "failed"],
+    default: "completed"
+  },
+  createdAt: {
+    type: Date,
     default: Date.now
   },
-  txMeta: mongoose.Schema.Types.Mixed
-}, { timestamps: true });
+  updatedAt: {
+    type: Date,
+    default: Date.now
+  }
+});
 
 export default mongoose.model("Payment", PaymentSchema);

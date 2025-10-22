@@ -1,6 +1,5 @@
 import mongoose from "mongoose";
 
-// 🚖 מבנה נסיעה בDatabase
 const RideSchema = new mongoose.Schema({
   customerName: {
     type: String,
@@ -18,42 +17,82 @@ const RideSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  scheduledTime: String,
-  notes: String,
+  scheduledTime: {
+    type: String,
+    default: null
+  },
+  notes: {
+    type: String,
+    default: null
+  },
   price: {
     type: Number,
-    default: 0
+    default: 0,
+    required: true
   },
   commissionRate: {
     type: Number,
-    default: 0.10
+    default: 0.10,
+    required: true
   },
-  commissionAmount: Number,
-  
-  // ⭐ סטטוס הנסיעה
+  commissionAmount: {
+    type: Number,
+    default: 0
+  },
   status: {
     type: String,
     enum: ["created", "sent", "approved", "enroute", "arrived", "finished", "commission_paid"],
-    default: "created"
+    default: "created",
+    required: true
   },
-  
   driver: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Driver",
     default: null
   },
-  driverPhone: String,
-  
-  // 📝 היסטוריה מלאה של מה שקרה
+  driverPhone: {
+    type: String,
+    default: null
+  },
+  rideType: {
+    type: String,
+    enum: ["regular", "vip", "delivery"],
+    default: "regular"
+  },
+  specialNotes: {
+    type: [String],
+    default: []
+  },
+  groupChat: {
+    type: String,
+    default: "default"
+  },
   history: [{
-    status: String,
-    by: String,
+    status: {
+      type: String,
+      required: true
+    },
+    by: {
+      type: String,
+      required: true
+    },
     at: {
       type: Date,
       default: Date.now
     },
-    meta: mongoose.Schema.Types.Mixed
-  }]
-}, { timestamps: true });
+    meta: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null
+    }
+  }],
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now
+  }
+});
 
 export default mongoose.model("Ride", RideSchema);
