@@ -770,19 +770,23 @@ app.use((err, req, res, next) => {
 async function start() {
   try {
     logger.info("התחלת חיבור ל-MongoDB...");
-    
+
     await mongoose.connect(process.env.MONGODB_URI, {
       serverSelectionTimeoutMS: 10000,
       socketTimeoutMS: 45000
     });
-    
+
     logger.success("מחובר ל-MongoDB!");
-    
+
+    const BASE_URL = process.env.WEBHOOK_URL || `http://localhost:${PORT}`;
+    const ENV = process.env.NODE_ENV || 'development';
+
     app.listen(PORT, () => {
-      console.log(`\n🚀 השרת רץ על: http://localhost:${PORT}`);
-      console.log(`🔐 כניסה: http://localhost:${PORT}/login.html`);
-      console.log(`❤️  Health: http://localhost:${PORT}/api/health`);
-      console.log(`📊 סטטיסטיקה: http://localhost:${PORT}/api/statistics\n`);
+      console.log(`\n🌍 מצב סביבתי: ${ENV}`);
+      console.log(`🚀 השרת רץ על: ${BASE_URL}`);
+      console.log(`🔐 כניסה: ${BASE_URL}/login.html`);
+      console.log(`❤️  Health: ${BASE_URL}/api/health`);
+      console.log(`📊 סטטיסטיקה: ${BASE_URL}/api/statistics\n`);
     });
   } catch (err) {
     logger.error("בעיה בחיבור ל-MongoDB", err);
