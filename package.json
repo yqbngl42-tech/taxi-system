@@ -8,16 +8,20 @@
     "start": "node server.js",
     "dev": "node --watch server.js"
   },
-  "keywords": ["taxi", "whatsapp", "mongodb"],
+  "keywords": [
+    "taxi",
+    "whatsapp",
+    "mongodb"
+  ],
   "author": "Your Name",
   "license": "ISC",
   "dependencies": {
-    "express": "^4.18.2",
-    "mongoose": "^7.0.0",
-    "dotenv": "^16.0.3",
-    "twilio": "^3.77.0",
     "axios": "^1.3.4",
     "cors": "^2.8.5",
-    "jsonwebtoken": "^9.0.0"
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.0",
+    "mongoose": "^7.0.0",
+    "twilio": "^5.10.3"
   }
 }
