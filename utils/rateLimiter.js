@@ -7,7 +7,7 @@ export default {
   /**
    * בדוק האם צריך לחסום בקשה
    */
-  checkRateLimit: (identifier, maxRequests = 30, windowMs = 60000) => {
+  checkRateLimit(identifier, maxRequests = 30, windowMs = 60000) {
     const now = Date.now();
     const key = identifier;
 
@@ -16,7 +16,7 @@ export default {
     }
 
     let requests = this.rateLimitStore.get(key);
-    
+
     // הסר בקשות ישנות
     requests = requests.filter(time => now - time < windowMs);
     this.rateLimitStore.set(key, requests);
@@ -39,9 +39,9 @@ export default {
       const identifier = `${ip}-${endpoint}`;
 
       if (!this.checkRateLimit(identifier, maxRequests, windowMs)) {
-        return res.status(429).json({ 
-          ok: false, 
-          error: "יותר מדי בקשות - נסה שוב בעוד דקה" 
+        return res.status(429).json({
+          ok: false,
+          error: "יותר מדי בקשות - נסה שוב בעוד דקה"
         });
       }
 
