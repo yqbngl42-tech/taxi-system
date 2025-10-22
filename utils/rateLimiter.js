@@ -32,7 +32,7 @@ export default {
   /**
    * Middleware ל-Express
    */
-  middleware: (maxRequests = 30, windowMs = 60000) => {
+  middleware(maxRequests = 30, windowMs = 60000) {
     return (req, res, next) => {
       const ip = req.ip || req.connection.remoteAddress;
       const endpoint = req.path;
