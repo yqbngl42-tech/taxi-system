@@ -3,12 +3,14 @@ import mongoose from "mongoose";
 const DriverSchema = new mongoose.Schema({
   name: {
     type: String,
-    required: true
+    required: true,
+    trim: true
   },
   phone: {
     type: String,
     required: true,
-    unique: true
+    unique: true,
+    trim: true
   },
   isActive: {
     type: Boolean,
@@ -24,6 +26,10 @@ const DriverSchema = new mongoose.Schema({
   },
   blockedAt: {
     type: Date,
+    default: null
+  },
+  blockedBy: {
+    type: String,
     default: null
   },
   rating: {

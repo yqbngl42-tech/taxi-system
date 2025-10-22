@@ -2,8 +2,8 @@
 <html lang="he" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>כניסה - מערכת מוניות</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>🚖 כניסה - מערכת מוניות</title>
     <style>
         * {
             margin: 0;
@@ -11,23 +11,42 @@
             box-sizing: border-box;
         }
 
+        html, body {
+            height: 100%;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
         body {
-            font-family: Arial, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
-            padding: 20px;
+            padding: 15px;
+        }
+
+        .login-wrapper {
+            width: 100%;
+            max-width: 450px;
         }
 
         .login-container {
             background: white;
-            border-radius: 10px;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
-            padding: 40px;
-            max-width: 400px;
-            width: 100%;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            padding: 30px 25px;
+            animation: slideUp 0.5s ease;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .logo {
@@ -35,14 +54,26 @@
             margin-bottom: 30px;
         }
 
+        .logo-icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+            animation: bounce 2s infinite;
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
         .logo h1 {
-            font-size: 32px;
-            color: #667eea;
-            margin-bottom: 10px;
+            font-size: 28px;
+            color: #333;
+            margin-bottom: 5px;
+            font-weight: 700;
         }
 
         .logo p {
-            color: #666;
+            color: #888;
             font-size: 14px;
         }
 
@@ -54,60 +85,104 @@
             display: block;
             margin-bottom: 8px;
             color: #333;
-            font-weight: bold;
+            font-weight: 600;
+            font-size: 14px;
         }
 
-        input {
+        input[type="password"] {
             width: 100%;
-            padding: 12px;
+            padding: 12px 15px;
             border: 2px solid #ddd;
-            border-radius: 5px;
+            border-radius: 8px;
             font-size: 16px;
-            transition: border-color 0.3s;
+            transition: all 0.3s;
+            font-family: Arial, sans-serif;
         }
 
-        input:focus {
+        input[type="password"]:focus {
             outline: none;
             border-color: #667eea;
+            box-shadow: 0 0 10px rgba(102, 126, 234, 0.2);
         }
 
-        button {
+        .password-container {
+            position: relative;
+        }
+
+        .toggle-password {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: #888;
+            user-select: none;
+            font-size: 18px;
+        }
+
+        input[type="password"] {
+            padding-left: 40px;
+        }
+
+        .btn-login {
             width: 100%;
-            padding: 12px;
+            padding: 13px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
-            border-radius: 5px;
+            border-radius: 8px;
             font-size: 16px;
-            font-weight: bold;
+            font-weight: 700;
             cursor: pointer;
-            transition: transform 0.2s;
+            transition: all 0.3s;
+            margin-top: 5px;
         }
 
-        button:hover {
+        .btn-login:hover {
             transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
         }
 
-        button:active {
+        .btn-login:active {
             transform: translateY(0);
+        }
+
+        .btn-login:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
         }
 
         .message {
             margin-top: 15px;
-            padding: 10px;
-            border-radius: 5px;
+            padding: 12px 15px;
+            border-radius: 8px;
+            font-size: 14px;
             display: none;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
         }
 
         .message.error {
             background: #fee;
             color: #c33;
+            border-left: 4px solid #f44;
             display: block;
         }
 
         .message.success {
             background: #efe;
-            color: #3c3;
+            color: #3a3;
+            border-left: 4px solid #4a4;
             display: block;
         }
 
@@ -115,40 +190,183 @@
             display: none;
             text-align: center;
             color: #667eea;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 3px solid rgba(102, 126, 234, 0.2);
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .info-box {
+            background: #f5f5f5;
+            border-left: 4px solid #667eea;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #666;
+            margin-top: 15px;
+        }
+
+        .info-box strong {
+            color: #333;
+        }
+
+        .session-timer {
+            text-align: center;
+            font-size: 12px;
+            color: #888;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }
+
+        /* Mobile Optimization */
+        @media (max-width: 480px) {
+            .login-container {
+                padding: 25px 20px;
+                border-radius: 12px;
+            }
+
+            .logo h1 {
+                font-size: 24px;
+            }
+
+            .logo-icon {
+                font-size: 40px;
+            }
+
+            input[type="password"],
+            .btn-login {
+                font-size: 16px;
+                padding: 12px;
+            }
+
+            .message {
+                font-size: 13px;
+            }
+        }
+
+        @media (max-width: 360px) {
+            body {
+                padding: 10px;
+            }
+
+            .login-container {
+                padding: 20px 15px;
+            }
+
+            .logo {
+                margin-bottom: 20px;
+            }
+
+            .logo h1 {
+                font-size: 22px;
+            }
+
+            .logo-icon {
+                font-size: 36px;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="login-container">
-        <div class="logo">
-            <h1>🚖</h1>
-            <h1>מערכת מוניות</h1>
-            <p>כניסה למנהל תחנה</p>
-        </div>
-
-        <form id="loginForm">
-            <div class="form-group">
-                <label for="password">סיסמה:</label>
-                <input type="password" id="password" placeholder="הזן את הסיסמה" required>
+    <div class="login-wrapper">
+        <div class="login-container">
+            <div class="logo">
+                <div class="logo-icon">🚖</div>
+                <h1>מערכת מוניות</h1>
+                <p>כניסה לממשק הניהול</p>
             </div>
 
-            <button type="submit">כניסה</button>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="password">🔐 סיסמה:</label>
+                    <div class="password-container">
+                        <input 
+                            type="password" 
+                            id="password" 
+                            placeholder="הזן את הסיסמה"
+                            autocomplete="current-password"
+                            required
+                        >
+                        <span class="toggle-password" onclick="togglePassword()">👁️</span>
+                    </div>
+                </div>
 
-            <div class="loading" id="loading">⏳ בטעינה...</div>
-            <div class="message" id="message"></div>
-        </form>
+                <button type="submit" class="btn-login" id="loginBtn">
+                    כניסה
+                </button>
+
+                <div class="loading" id="loading">
+                    <span class="spinner"></span>בטעינה...
+                </div>
+
+                <div class="message" id="message"></div>
+
+                <div class="info-box">
+                    <strong>💡 טיפ:</strong> הסיסמה היא <code>1122334455</code>
+                </div>
+
+                <div class="session-timer">
+                    ⏱️ הטוקן בתוקף ל-24 שעות
+                </div>
+            </form>
+        </div>
     </div>
 
     <script>
+        // 🔐 Security - בדיקת HTTPS בפרודאקשן
+        if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+            console.warn('⚠️ אנא השתמש ב-HTTPS לאבטחה מלאה');
+        }
+
+        // 👁️ Toggle Password Visibility
+        function togglePassword() {
+            const input = document.getElementById('password');
+            const toggle = document.querySelector('.toggle-password');
+            
+            if (input.type === 'password') {
+                input.type = 'text';
+                toggle.textContent = '👁️‍🗨️';
+            } else {
+                input.type = 'password';
+                toggle.textContent = '👁️';
+            }
+        }
+
+        // 📝 Login Form Handler
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
 
             const password = document.getElementById('password').value;
             const loading = document.getElementById('loading');
             const message = document.getElementById('message');
+            const loginBtn = document.getElementById('loginBtn');
+
+            if (!password) {
+                message.textContent = '❌ אנא הזן סיסמה';
+                message.classList.remove('success');
+                message.classList.add('error');
+                message.style.display = 'block';
+                return;
+            }
 
             loading.style.display = 'block';
             message.style.display = 'none';
+            loginBtn.disabled = true;
 
             try {
                 const response = await fetch('/api/login', {
@@ -161,35 +379,62 @@
 
                 const data = await response.json();
 
-                if (data.ok) {
-                    // שמור את הטוקן בזיכרון המקומי
+                if (data.ok && data.token) {
+                    // שמור את הטוקן
                     localStorage.setItem('authToken', data.token);
+                    localStorage.setItem('loginTime', new Date().getTime());
+                    localStorage.setItem('expiresIn', data.expiresIn * 1000);
 
-                    message.textContent = '✅ כניסה בהצלחה! מעביר אותך לעמוד הראשי...';
+                    message.textContent = '✅ כניסה בהצלחה! מעביר אותך...';
                     message.classList.remove('error');
                     message.classList.add('success');
                     message.style.display = 'block';
 
                     setTimeout(() => {
                         window.location.href = '/index.html';
-                    }, 1000);
+                    }, 1500);
                 } else {
-                    throw new Error(data.error);
+                    throw new Error(data.error || 'שגיאה בכניסה');
                 }
             } catch (err) {
-                message.textContent = '❌ שגיאה: ' + err.message;
+                message.textContent = '❌ ' + (err.message || 'שגיאה בחיבור לשרת');
                 message.classList.remove('success');
                 message.classList.add('error');
                 message.style.display = 'block';
+                loginBtn.disabled = false;
             } finally {
                 loading.style.display = 'none';
             }
         });
 
-        // בדוק אם כבר מחובר
-        if (localStorage.getItem('authToken')) {
-            window.location.href = '/index.html';
-        }
+        // 🔐 בדוק אם כבר מחובר
+        window.addEventListener('load', () => {
+            const token = localStorage.getItem('authToken');
+            const loginTime = localStorage.getItem('loginTime');
+            const expiresIn = localStorage.getItem('expiresIn');
+
+            if (token && loginTime && expiresIn) {
+                const now = new Date().getTime();
+                const elapsed = now - parseInt(loginTime);
+
+                if (elapsed < parseInt(expiresIn)) {
+                    // טוקן תקף, עבור ישירות לעמוד הראשי
+                    window.location.href = '/index.html';
+                } else {
+                    // טוקן פקע
+                    localStorage.removeItem('authToken');
+                    localStorage.removeItem('loginTime');
+                    localStorage.removeItem('expiresIn');
+                }
+            }
+        });
+
+        // Enter Key Submit
+        document.getElementById('password').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                document.getElementById('loginForm').dispatchEvent(new Event('submit'));
+            }
+        });
     </script>
 </body>
 </html>

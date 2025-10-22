@@ -3,19 +3,23 @@ import mongoose from "mongoose";
 const RideSchema = new mongoose.Schema({
   customerName: {
     type: String,
-    required: true
+    required: true,
+    trim: true
   },
   customerPhone: {
     type: String,
-    required: true
+    required: true,
+    trim: true
   },
   pickup: {
     type: String,
-    required: true
+    required: true,
+    trim: true
   },
   destination: {
     type: String,
-    required: true
+    required: true,
+    trim: true
   },
   scheduledTime: {
     type: String,
@@ -27,13 +31,14 @@ const RideSchema = new mongoose.Schema({
   },
   price: {
     type: Number,
-    default: 0,
-    required: true
+    required: true,
+    min: 0
   },
   commissionRate: {
     type: Number,
     default: 0.10,
-    required: true
+    min: 0,
+    max: 1
   },
   commissionAmount: {
     type: Number,
@@ -41,14 +46,8 @@ const RideSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ["created", "sent", "approved", "enroute", "arrived", "finished", "commission_paid"],
-    default: "created",
-    required: true
-  },
-  driver: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Driver",
-    default: null
+    enum: ["created", "sent", "approved", "enroute", "arrived", "finished", "commission_paid", "cancelled"],
+    default: "created"
   },
   driverPhone: {
     type: String,
@@ -67,23 +66,15 @@ const RideSchema = new mongoose.Schema({
     type: String,
     default: "default"
   },
+  createdBy: {
+    type: String,
+    default: "admin"
+  },
   history: [{
-    status: {
-      type: String,
-      required: true
-    },
-    by: {
-      type: String,
-      required: true
-    },
-    at: {
-      type: Date,
-      default: Date.now
-    },
-    meta: {
-      type: mongoose.Schema.Types.Mixed,
-      default: null
-    }
+    status: String,
+    by: String,
+    timestamp: { type: Date, default: Date.now },
+    details: String
   }],
   createdAt: {
     type: Date,

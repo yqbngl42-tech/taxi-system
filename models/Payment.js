@@ -6,14 +6,14 @@ const PaymentSchema = new mongoose.Schema({
     ref: "Ride",
     required: true
   },
-  driver: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Driver",
+  driverPhone: {
+    type: String,
     required: true
   },
   amount: {
     type: Number,
-    required: true
+    required: true,
+    min: 0
   },
   status: {
     type: String,
