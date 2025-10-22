@@ -34,3 +34,4 @@ const AdminContactSchema = new mongoose.Schema({
 });
 
 export default mongoose.model("AdminContact", AdminContactSchema);
+export default mongoose.model("AdminContact", AdminContactSchema);

@@ -330,10 +330,13 @@ async function loadDrivers() {
             </span>
           </td>
           <td>
-            ${driver.isBlocked ? 
-              `<button class="btn btn-small btn-success" onclick="unblockDriver('${driver._id}')">🔓 שחרר</button>` :
-              `<button class="btn btn-small btn-danger" onclick="promptBlockDriver('${driver._id}', '${driver.name}')">🚫 חסום</button>`
-            }
+            <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+              ${driver.isBlocked ? 
+                `<button class="btn btn-small btn-success" onclick="unblockDriver('${driver._id}')">🔓 שחרר</button>` :
+                `<button class="btn btn-small btn-danger" onclick="promptBlockDriver('${driver._id}', '${driver.name}')">🚫 חסום</button>`
+              }
+              <button class="btn btn-small btn-danger" onclick="deleteDriver('${driver._id}', '${driver.name}')">🗑️ מחק</button>
+            </div>
           </td>
         </tr>
       `;
@@ -584,6 +587,69 @@ async function unblockDriver(driverId) {
   } catch (err) {
     console.error('❌ שגיאה:', err);
     showToast('שגיאה בשחרור', 'error');
+  }
+}
+
+// ➕ הוסף נהג חדש
+async function openAddDriverModal() {
+  const driverName = prompt('הזן שם הנהג:');
+  if (!driverName) return;
+
+  const driverPhone = prompt('הזן מספר טלפון (לדוגמה: 0501234567):');
+  if (!driverPhone) return;
+
+  try {
+    const response = await fetch('/api/drivers', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify({
+        name: driverName,
+        phone: driverPhone
+      })
+    });
+
+    const result = await response.json();
+
+    if (result.ok) {
+      showToast(`✅ נהג "${driverName}" הוסף בהצלחה!`, 'success');
+      loadDrivers();
+    } else {
+      showToast('❌ ' + result.error, 'error');
+    }
+  } catch (err) {
+    console.error('❌ שגיאה:', err);
+    showToast('שגיאה בהוספת נהג', 'error');
+  }
+}
+
+// 🗑️ מחק נהג
+async function deleteDriver(driverId, driverName) {
+  if (!confirm(`האם אתה בטוח שתרצה למחוק את ${driverName}?`)) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/drivers/${driverId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': 'Bearer ' + token
+      }
+    });
+
+    const result = await response.json();
+
+    if (result.ok) {
+      showToast(`✅ נהג "${driverName}" נמחק בהצלחה!`, 'success');
+      loadDrivers();
+    } else {
+      showToast('❌ ' + result.error, 'error');
+    }
+  } catch (err) {
+    console.error('❌ שגיאה:', err);
+    showToast('שגיאה במחיקת נהג', 'error');
   }
 }
 

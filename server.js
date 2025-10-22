@@ -33,8 +33,8 @@ app.use(cors({
 }));
 app.use(express.static(path.join(__dirname, "public")));
 
-// 🛡️ Rate Limiting
-app.use(rateLimiter.middleware(60, 60000));
+// 🛡️ Rate Limiting - 100 requests per minute (חכם יותר)
+app.use(rateLimiter.middleware(100, 60000));
 
 // 🛡️ Security Headers
 app.use((req, res, next) => {
@@ -300,25 +300,7 @@ app.get("/api/rides", authenticateToken, async (req, res) => {
   }
 });
 
-// 📍 API 5: קבלת כל הנהגים
-app.get("/api/drivers", authenticateToken, async (req, res) => {
-  try {
-    const { isBlocked, isActive } = req.query;
-    
-    const query = {};
-    if (isBlocked !== undefined) query.isBlocked = isBlocked === 'true';
-    if (isActive !== undefined) query.isActive = isActive === 'true';
-    
-    const drivers = await Driver.find(query).select('-blockedReason');
-    
-    res.json({ ok: true, drivers, count: drivers.length });
-  } catch (err) {
-    logger.error("שגיאה בקבלת נהגים", err);
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
-// 📍 API 6: חסימת נהג
+// 📍 API 5: חסימת נהג
 app.post("/api/drivers/:id/block", authenticateToken, async (req, res) => {
   try {
     const { reason } = req.body;
@@ -350,7 +332,7 @@ app.post("/api/drivers/:id/block", authenticateToken, async (req, res) => {
   }
 });
 
-// 📍 API 7: הסרת חסימה
+// 📍 API 6: הסרת חסימה
 app.post("/api/drivers/:id/unblock", authenticateToken, async (req, res) => {
   try {
     const driver = await Driver.findByIdAndUpdate(
@@ -570,9 +552,158 @@ app.post("/api/groups/:id/remove-phone", authenticateToken, async (req, res) => 
   }
 });
 
+// ============ API: ניהול נהגים (CRUD) ============
+
+// 📍 API 12: קבלת כל הנהגים (עם חיפוש וסינון)
+app.get("/api/drivers", authenticateToken, async (req, res) => {
+  try {
+    const { search, isActive, isBlocked, limit = 100, skip = 0 } = req.query;
+    
+    const query = {};
+    
+    if (isActive !== undefined) query.isActive = isActive === 'true';
+    if (isBlocked !== undefined) query.isBlocked = isBlocked === 'true';
+    
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    const drivers = await Driver.find(query).limit(parseInt(limit)).skip(parseInt(skip)).sort({ createdAt: -1 });
+    const total = await Driver.countDocuments(query);
+    
+    logger.action("קבלת רשימת נהגים", { total, returned: drivers.length });
+    res.json({ ok: true, drivers, total, count: drivers.length });
+  } catch (err) {
+    logger.error("שגיאה בקבלת רשימת נהגים", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 📍 API 13: הוספת נהג חדש
+app.post("/api/drivers", authenticateToken, async (req, res) => {
+  try {
+    const { name, phone } = req.body;
+    
+    // ✅ Validation
+    if (!name || !phone) {
+      return res.status(400).json({ ok: false, error: "חובה: שם וטלפון" });
+    }
+    
+    if (name.trim().length < 2) {
+      return res.status(400).json({ ok: false, error: "השם צריך להיות בן 2 תווים לפחות" });
+    }
+    
+    const phoneRegex = /^(0|\+972)?5\d{8}$/;
+    if (!phoneRegex.test(phone.replace(/[\s\-]/g, ''))) {
+      return res.status(400).json({ ok: false, error: "טלפון לא תקין" });
+    }
+    
+    // בדוק אם הנהג קיים
+    const existingDriver = await Driver.findOne({ phone: phone.trim() });
+    if (existingDriver) {
+      return res.status(409).json({ ok: false, error: "נהג עם טלפון זה קיים כבר" });
+    }
+    
+    const driver = await Driver.create({
+      name: name.trim(),
+      phone: phone.trim(),
+      isActive: true,
+      rating: 5,
+      totalRides: 0,
+      totalEarnings: 0,
+      commissionPaid: 0
+    });
+    
+    logger.success("נהג חדש נוסף", { driverName: driver.name, phone: driver.phone });
+    res.status(201).json({ ok: true, driver, message: "נהג הוסף בהצלחה ✅" });
+  } catch (err) {
+    logger.error("שגיאה בהוספת נהג", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 📍 API 14: עדכון נהג
+app.patch("/api/drivers/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, isActive, isBlocked, blockedReason } = req.body;
+    
+    if (!id) {
+      return res.status(400).json({ ok: false, error: "חסר ID של נהג" });
+    }
+    
+    const updates = {};
+    if (name) updates.name = name.trim();
+    if (isActive !== undefined) updates.isActive = isActive;
+    if (isBlocked !== undefined) {
+      updates.isBlocked = isBlocked;
+      if (isBlocked) {
+        updates.blockedAt = new Date();
+        updates.blockedReason = blockedReason || "חסום על ידי מנהל";
+        updates.blockedBy = req.user.user;
+      } else {
+        updates.blockedAt = null;
+        updates.blockedReason = null;
+      }
+    }
+    updates.updatedAt = new Date();
+    
+    const driver = await Driver.findByIdAndUpdate(id, updates, { new: true });
+    
+    if (!driver) {
+      return res.status(404).json({ ok: false, error: "נהג לא נמצא" });
+    }
+    
+    logger.action("נהג עודכן", { driverName: driver.name, id });
+    res.json({ ok: true, driver, message: "נהג עודכן בהצלחה ✅" });
+  } catch (err) {
+    logger.error("שגיאה בעדכון נהג", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// 📍 API 15: מחיקת נהג
+app.delete("/api/drivers/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    if (!id) {
+      return res.status(400).json({ ok: false, error: "חסר ID של נהג" });
+    }
+    
+    // בדוק אם לנהג זה יש נסיעות פעילות
+    const activeRides = await Ride.countDocuments({ 
+      driverPhone: { $exists: true, $ne: null },
+      status: { $in: ["sent", "approved", "enroute", "arrived"] }
+    });
+    
+    if (activeRides > 0) {
+      return res.status(409).json({ 
+        ok: false, 
+        error: `לא יכול למחוק נהג עם נסיעות פעילות (${activeRides} נסיעות)` 
+      });
+    }
+    
+    const driver = await Driver.findByIdAndDelete(id);
+    
+    if (!driver) {
+      return res.status(404).json({ ok: false, error: "נהג לא נמצא" });
+    }
+    
+    logger.success("נהג נמחק", { driverName: driver.name, id });
+    res.json({ ok: true, message: `נהג "${driver.name}" נמחק בהצלחה ✅` });
+  } catch (err) {
+    logger.error("שגיאה במחיקת נהג", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // ============ API: ניהול פרטי אדמין ============
 
-// 📍 API 15: קבלת פרטי אדמין
+// 📍 API 16: קבלת פרטי אדמין
 app.get("/api/admin-contact", authenticateToken, async (req, res) => {
   try {
     let contact = await AdminContact.findOne();
@@ -591,7 +722,7 @@ app.get("/api/admin-contact", authenticateToken, async (req, res) => {
   }
 });
 
-// 📍 API 16: עדכון פרטי אדמין
+// 📍 API 17: עדכון פרטי אדמין
 app.patch("/api/admin-contact", authenticateToken, async (req, res) => {
   try {
     const { adminName, adminPhone, adminEmail, appealMessage } = req.body;
@@ -620,7 +751,7 @@ app.patch("/api/admin-contact", authenticateToken, async (req, res) => {
   }
 });
 
-// 🔗 WEBHOOK: קבלת הודעות מ-Twilio
+// 🔗 WEBHOOK: קבלת הודעות מ-Twilio (משודרג עם כל ה-statusים)
 app.post("/webhook", async (req, res) => {
   try {
     const twilioSignature = req.headers['x-twilio-signature'] || '';
@@ -658,7 +789,7 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // קבלת נסיעה
+    // ============ קבלת נסיעה (ACCEPT) ============
     if (messageBody && messageBody.startsWith("ACCEPT")) {
       const parts = messageBody.split(" ");
       const rideId = parts[1];
@@ -668,29 +799,225 @@ app.post("/webhook", async (req, res) => {
         return res.sendStatus(200);
       }
 
-      const updated = await Ride.findOneAndUpdate(
-        { _id: rideId, status: { $in: ["created", "sent"] } },
-        {
-          status: "approved",
-          driverPhone: from.replace("whatsapp:", ""),
-          $push: { history: { status: "approved", by: from, timestamp: new Date() } }
-        },
-        { new: true }
-      );
+      try {
+        // 🛡️ Race Condition Protection - atomic update
+        const updated = await Ride.findOneAndUpdate(
+          { 
+            _id: rideId, 
+            status: { $in: ["created", "sent"] },
+            driverPhone: { $in: [null, undefined] }  // וודא שלא יש נהג
+          },
+          {
+            status: "approved",
+            driverPhone: from.replace("whatsapp:", ""),
+            $push: { history: { status: "approved", by: from, timestamp: new Date() } }
+          },
+          { new: true }
+        );
 
-      if (updated) {
-        // שלח פרטים מלאים בפרטי
-        await twilioAdapter.sendWhatsAppMessage(
-          from,
-          createPrivateMessage(updated)
+        if (updated) {
+          // שלח פרטים מלאים בפרטי
+          await twilioAdapter.sendWhatsAppMessage(
+            from,
+            createPrivateMessage(updated)
+          );
+          
+          logger.action("נהג קיבל נסיעה", { rideNumber: updated.rideNumber, driverPhone: from });
+        } else {
+          await twilioAdapter.sendWhatsAppMessage(
+            from,
+            "❌ מצטערים - הנסיעה כבר נלקחה על ידי נהג אחר או לא קיימת"
+          );
+        }
+      } catch (err) {
+        logger.error("שגיאה בקבלת נסיעה", err);
+        await twilioAdapter.sendWhatsAppMessage(from, "❌ שגיאה בעדכון הנסיעה");
+      }
+    }
+
+    // ============ נהג בדרך (ENROUTE) ============
+    if (messageBody && messageBody.startsWith("ENROUTE")) {
+      const parts = messageBody.split(" ");
+      const rideId = parts[1];
+
+      if (!rideId) {
+        await twilioAdapter.sendWhatsAppMessage(from, "❌ שגיאה: ID נסיעה לא תקין");
+        return res.sendStatus(200);
+      }
+
+      try {
+        const updated = await Ride.findByIdAndUpdate(
+          rideId,
+          {
+            status: "enroute",
+            $push: { history: { status: "enroute", by: from, timestamp: new Date(), details: "בדרך לאיסוף" } }
+          },
+          { new: true }
         );
-        
-        logger.action("נהג קיבל נסיעה", { rideNumber: updated.rideNumber, driverPhone: from });
-      } else {
-        await twilioAdapter.sendWhatsAppMessage(
-          from,
-          "❌ מצטערים - הנסיעה כבר נלקחה על ידי נהג אחר או לא קיימת"
+
+        if (updated) {
+          await twilioAdapter.sendWhatsAppMessage(
+            from,
+            `✅ סטטוס עודכן: בדרך! 🚗\n\n📍 אל: ${updated.destination}`
+          );
+          logger.action("נהג בדרך", { rideNumber: updated.rideNumber, driverPhone: from });
+        } else {
+          await twilioAdapter.sendWhatsAppMessage(from, "❌ נסיעה לא נמצאה");
+        }
+      } catch (err) {
+        logger.error("שגיאה בעדכון ENROUTE", err);
+        await twilioAdapter.sendWhatsAppMessage(from, "❌ שגיאה בעדכון הנסיעה");
+      }
+    }
+
+    // ============ נהג הגיע (ARRIVED) ============
+    if (messageBody && messageBody.startsWith("ARRIVED")) {
+      const parts = messageBody.split(" ");
+      const rideId = parts[1];
+
+      if (!rideId) {
+        await twilioAdapter.sendWhatsAppMessage(from, "❌ שגיאה: ID נסיעה לא תקין");
+        return res.sendStatus(200);
+      }
+
+      try {
+        const updated = await Ride.findByIdAndUpdate(
+          rideId,
+          {
+            status: "arrived",
+            $push: { history: { status: "arrived", by: from, timestamp: new Date(), details: "הגיע ליעד" } }
+          },
+          { new: true }
         );
+
+        if (updated) {
+          await twilioAdapter.sendWhatsAppMessage(
+            from,
+            `✅ סטטוס עודכן: הגעתי! 📍\n\n👤 לקוח: ${updated.customerName}`
+          );
+          logger.action("נהג הגיע", { rideNumber: updated.rideNumber, driverPhone: from });
+        } else {
+          await twilioAdapter.sendWhatsAppMessage(from, "❌ נסיעה לא נמצאה");
+        }
+      } catch (err) {
+        logger.error("שגיאה בעדכון ARRIVED", err);
+        await twilioAdapter.sendWhatsAppMessage(from, "❌ שגיאה בעדכון הנסיעה");
+      }
+    }
+
+    // ============ סיום נסיעה (FINISH) ============
+    if (messageBody && messageBody.startsWith("FINISH")) {
+      const parts = messageBody.split(" ");
+      const rideId = parts[1];
+
+      if (!rideId) {
+        await twilioAdapter.sendWhatsAppMessage(from, "❌ שגיאה: ID נסיעה לא תקין");
+        return res.sendStatus(200);
+      }
+
+      try {
+        const ride = await Ride.findByIdAndUpdate(
+          rideId,
+          {
+            status: "finished",
+            $push: { history: { status: "finished", by: from, timestamp: new Date(), details: "סיימנו את הנסיעה" } }
+          },
+          { new: true }
+        );
+
+        if (ride) {
+          const paymentLink = process.env.BIT_LINK || "https://bit.ly/taxi-payment";
+          await twilioAdapter.sendWhatsAppMessage(
+            from,
+            `✅ נסיעה סיימה! 🎉\n\n📍 מיקום: ${ride.destination}\n💳 עמלה: ₪${ride.commissionAmount}\n\n🔗 לתשלום:\n${paymentLink}\n\nתודה! 🙏`
+          );
+          logger.action("סיום נסיעה", { rideNumber: ride.rideNumber, commission: ride.commissionAmount });
+        } else {
+          await twilioAdapter.sendWhatsAppMessage(from, "❌ נסיעה לא נמצאה");
+        }
+      } catch (err) {
+        logger.error("שגיאה בסיום נסיעה", err);
+        await twilioAdapter.sendWhatsAppMessage(from, "❌ שגיאה בעדכון הנסיעה");
+      }
+    }
+
+    // ============ סימון עמלה כשולמה (PAID) ============
+    if (messageBody && messageBody.startsWith("PAID")) {
+      const parts = messageBody.split(" ");
+      const rideId = parts[1];
+
+      if (!rideId) {
+        await twilioAdapter.sendWhatsAppMessage(from, "❌ שגיאה: ID נסיעה לא תקין");
+        return res.sendStatus(200);
+      }
+
+      try {
+        const ride = await Ride.findByIdAndUpdate(
+          rideId,
+          {
+            status: "commission_paid",
+            $push: { history: { status: "commission_paid", by: from, timestamp: new Date(), details: "עמלה שולמה" } }
+          },
+          { new: true }
+        );
+
+        if (ride) {
+          await twilioAdapter.sendWhatsAppMessage(
+            from,
+            `✅ תודה על התשלום! 💰\n\nעמלה שולמה: ₪${ride.commissionAmount}\n\nהצלחה בנסיעות הבאות! 🚗`
+          );
+          
+          // עדכן את דוח הנהג
+          if (driver) {
+            driver.commissionPaid += ride.commissionAmount;
+            driver.totalRides += 1;
+            driver.totalEarnings += ride.price;
+            await driver.save();
+          }
+          
+          logger.success("עמלה סומנה כשולמה", { rideNumber: ride.rideNumber, amount: ride.commissionAmount });
+        } else {
+          await twilioAdapter.sendWhatsAppMessage(from, "❌ נסיעה לא נמצאה");
+        }
+      } catch (err) {
+        logger.error("שגיאה בסימון עמלה", err);
+        await twilioAdapter.sendWhatsAppMessage(from, "❌ שגיאה בעדכון התשלום");
+      }
+    }
+
+    // ============ ביטול נסיעה (CANCEL) ============
+    if (messageBody && messageBody.startsWith("CANCEL")) {
+      const parts = messageBody.split(" ");
+      const rideId = parts[1];
+
+      if (!rideId) {
+        await twilioAdapter.sendWhatsAppMessage(from, "❌ שגיאה: ID נסיעה לא תקין");
+        return res.sendStatus(200);
+      }
+
+      try {
+        const ride = await Ride.findByIdAndUpdate(
+          rideId,
+          {
+            status: "cancelled",
+            driverPhone: null,
+            $push: { history: { status: "cancelled", by: from, timestamp: new Date(), details: "ביטול על ידי נהג" } }
+          },
+          { new: true }
+        );
+
+        if (ride) {
+          await twilioAdapter.sendWhatsAppMessage(
+            from,
+            `⚠️ הנסיעה בוטלה בהצלחה\n\nמצטערים שזה לא עבד! 😔`
+          );
+          logger.warn("נסיעה בוטלה על ידי נהג", { rideNumber: ride.rideNumber });
+        } else {
+          await twilioAdapter.sendWhatsAppMessage(from, "❌ נסיעה לא נמצאה");
+        }
+      } catch (err) {
+        logger.error("שגיאה בביטול נסיעה", err);
+        await twilioAdapter.sendWhatsAppMessage(from, "❌ שגיאה בביטול הנסיעה");
       }
     }
 
