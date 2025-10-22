@@ -2,221 +2,37 @@
 <html lang="he" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>כניסה - תחנת מוניות</title>
+  <title>כניסה</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-    
-    body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-height: 100vh;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      padding: 20px;
-    }
-    
-    .login-container {
-      background: white;
-      border-radius: 20px;
-      padding: 40px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-      width: 100%;
-      max-width: 400px;
-    }
-    
-    .logo {
-      text-align: center;
-      margin-bottom: 30px;
-      font-size: 60px;
-    }
-    
-    h1 {
-      color: #333;
-      text-align: center;
-      margin-bottom: 10px;
-      font-size: 24px;
-    }
-    
-    .subtitle {
-      color: #666;
-      text-align: center;
-      margin-bottom: 30px;
-      font-size: 14px;
-    }
-    
-    .form-group {
-      margin-bottom: 20px;
-    }
-    
-    label {
-      display: block;
-      color: #333;
-      font-weight: bold;
-      margin-bottom: 8px;
-    }
-    
-    input[type="password"] {
-      width: 100%;
-      padding: 12px;
-      border: 2px solid #ddd;
-      border-radius: 8px;
-      font-size: 16px;
-      direction: rtl;
-    }
-    
-    input[type="password"]:focus {
-      outline: none;
-      border-color: #667eea;
-      box-shadow: 0 0 10px rgba(102, 126, 234, 0.3);
-    }
-    
-    button {
-      width: 100%;
-      padding: 12px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      border: none;
-      border-radius: 8px;
-      font-size: 16px;
-      font-weight: bold;
-      cursor: pointer;
-      transition: 0.3s;
-    }
-    
-    button:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
-    }
-    
-    button:active {
-      transform: translateY(0);
-    }
-    
-    .error {
-      background: #f8d7da;
-      color: #721c24;
-      padding: 12px;
-      border-radius: 8px;
-      margin-bottom: 20px;
-      border: 1px solid #f5c6cb;
-      display: none;
-    }
-    
-    .loading {
-      display: none;
-      text-align: center;
-      color: #667eea;
-      font-weight: bold;
-      margin-top: 10px;
-    }
-    
-    .footer {
-      text-align: center;
-      margin-top: 20px;
-      color: #999;
-      font-size: 12px;
-    }
+    body { font-family: Arial; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+           display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+    .box { background: white; padding: 40px; border-radius: 10px; text-align: center; width: 300px; }
+    input { width: 100%; padding: 10px; margin: 10px 0; border: 2px solid #ddd; border-radius: 5px; }
+    button { width: 100%; padding: 10px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    .error { color: red; margin-top: 10px; }
   </style>
 </head>
 <body>
-  <div class="login-container">
-    <div class="logo">🚖</div>
-    <h1>תחנת מוניות</h1>
-    <p class="subtitle">מערכת ניהול מאובטחת</p>
-    
-    <div class="error" id="errorMessage"></div>
-    
-    <div class="form-group">
-      <label for="password">סיסמה</label>
-      <input 
-        type="password" 
-        id="password" 
-        placeholder="הזן סיסמה" 
-        required
-      >
-    </div>
-    
-    <button onclick="handleLogin()">כניסה</button>
-    <div class="loading" id="loading">טוען...</div>
-    
-    <div class="footer">
-      © 2025 תחנת מוניות
-    </div>
+  <div class="box">
+    <h1>🚖</h1>
+    <h2>כניסה</h2>
+    <input type="password" id="pass" placeholder="סיסמה">
+    <button onclick="login()">כניסה</button>
+    <div class="error" id="err"></div>
   </div>
 
   <script>
-    // בדוק אם כבר מחובר
-    window.addEventListener('load', function() {
-      const token = localStorage.getItem('authToken');
-      if (token) {
+    function login() {
+      const pass = document.getElementById('pass').value;
+      alert('סיסמה שהוזנה: ' + pass);
+      
+      if (pass === 'benethya1122334455') {
+        localStorage.setItem('token', 'test-token-123');
         window.location.href = '/index.html';
-      }
-    });
-
-    async function handleLogin() {
-      const password = document.getElementById('password').value;
-      const errorDiv = document.getElementById('errorMessage');
-      const loadingDiv = document.getElementById('loading');
-      
-      console.log("לחצת על כניסה!");
-      console.log("סיסמה שהוזנה:", password);
-      
-      if (!password) {
-        errorDiv.textContent = '❌ אנא הזן סיסמה';
-        errorDiv.style.display = 'block';
-        return;
-      }
-      
-      errorDiv.style.display = 'none';
-      loadingDiv.style.display = 'block';
-      
-      try {
-        console.log("שולח בקשה ל-/api/login...");
-        
-        const response = await fetch('/api/login', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ password })
-        });
-        
-        console.log("קיבלנו תשובה:", response.status);
-        
-        const result = await response.json();
-        
-        console.log("תוצאה:", result);
-        
-        if (result.ok) {
-          console.log("✅ כניסה הצליחה!");
-          localStorage.setItem('authToken', result.token);
-          window.location.href = '/index.html';
-        } else {
-          console.log("❌ כניסה נכשלה:", result.error);
-          errorDiv.textContent = '❌ ' + (result.error || 'סיסמה לא נכונה');
-          errorDiv.style.display = 'block';
-          loadingDiv.style.display = 'none';
-        }
-      } catch (err) {
-        console.error("❌ שגיאה בתקשורת:", err);
-        errorDiv.textContent = '❌ שגיאה בתקשורת עם השרת';
-        errorDiv.style.display = 'block';
-        loadingDiv.style.display = 'none';
+      } else {
+        document.getElementById('err').textContent = 'סיסמה לא נכונה';
       }
     }
-    
-    // כנס עם Enter
-    document.getElementById('password').addEventListener('keypress', function(e) {
-      if (e.key === 'Enter') {
-        handleLogin();
-      }
-    });
   </script>
 </body>
 </html>
