@@ -27,31 +27,42 @@ const PORT = process.env.PORT || 3000;
 // 🔐 MIDDLEWARE SECURITY
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// 🔓 CORS Configuration - פתיחה לפרונט
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:5500',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3001',
+  'http://127.0.0.1:5500',
+  'http://localhost:8080',
+  'http://127.0.0.1:8080'
+];
+
+// בפרודקשן - הוסף כתובות אתרים
+if (process.env.NODE_ENV === 'production') {
+  if (process.env.FRONTEND_URL) {
+    allowedOrigins.push(process.env.FRONTEND_URL);
+  }
+}
+
 app.use(cors({
   origin: function(origin, callback) {
-    // allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    const allowedOrigins = [
-      'http://localhost:3000', 
-      'http://localhost:3001',
-      'http://localhost:5500',
-      'http://127.0.0.1:3001',
-      'http://127.0.0.1:5500'
-    ];
-    
-    if (process.env.NODE_ENV === 'production') {
-      // בפרודקשן - אתר הלקוחות שלך
-      allowedOrigins.push(process.env.FRONTEND_URL || 'https://your-client-domain.com');
+    // אפשר בקשות ללא origin (mobile apps, curl וכו')
+    if (!origin) {
+      return callback(null, true);
     }
     
-    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+    if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      console.warn(`⚠️ CORS Block: ${origin}`);
+      callback(new Error(`CORS not allowed for origin: ${origin}`));
     }
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.static(path.join(__dirname, "public")));
 
