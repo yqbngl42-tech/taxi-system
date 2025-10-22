@@ -1,6 +1,8 @@
+import dotenv from "dotenv";
+dotenv.config(); // ⬅️ חייב להיות לפני כל שימוש ב־process.env
+
 import express from "express";
 import mongoose from "mongoose";
-import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 import jwt from "jsonwebtoken";
@@ -11,13 +13,13 @@ import twilioAdapter from "./utils/twilioAdapter.js";
 import cors from "cors";
 import twilio from "twilio";
 
-dotenv.config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+
 
 // 🔐 MIDDLEWARE SECURITY
 app.use(express.json({ limit: '10mb' }));

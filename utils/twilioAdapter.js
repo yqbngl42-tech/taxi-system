@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config(); // ⬅️ חובה כדי לטעון את המשתנים מקובץ .env
+
 import twilio from 'twilio';
 
 // 🔐 בדוק שכל ה-credentials קיימים
