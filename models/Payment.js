@@ -1,38 +1,33 @@
 import mongoose from "mongoose";
 
 const PaymentSchema = new mongoose.Schema({
-  rideId: {
+  ride: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Ride",
     required: true
   },
-  driverPhone: {
-    type: String,
+  driver: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Driver",
     required: true
   },
   amount: {
     type: Number,
     required: true
   },
-  method: {
-    type: String,
-    enum: ["bit", "paybox", "cash"],
-    default: "bit",
-    required: true
-  },
-  paidAt: {
-    type: Date,
-    default: Date.now,
-    required: true
-  },
-  txMeta: {
-    type: mongoose.Schema.Types.Mixed,
-    default: null
-  },
   status: {
     type: String,
-    enum: ["pending", "completed", "failed"],
-    default: "completed"
+    enum: ["pending", "approved", "rejected", "paid"],
+    default: "pending"
+  },
+  paymentMethod: {
+    type: String,
+    enum: ["cash", "transfer", "card"],
+    default: "cash"
+  },
+  notes: {
+    type: String,
+    default: null
   },
   createdAt: {
     type: Date,

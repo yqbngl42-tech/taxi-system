@@ -7,32 +7,12 @@ const DriverSchema = new mongoose.Schema({
   },
   phone: {
     type: String,
-    unique: true,
-    required: true
+    required: true,
+    unique: true
   },
-  groups: {
-    type: [String],
-    default: []
-  },
-  active: {
+  isActive: {
     type: Boolean,
     default: true
-  },
-  rating: {
-    type: Number,
-    default: 5,
-    min: 0,
-    max: 5
-  },
-  averageResponseTime: {
-    type: Number,
-    default: 0
-  },
-  acceptanceRate: {
-    type: Number,
-    default: 0,
-    min: 0,
-    max: 100
   },
   isBlocked: {
     type: Boolean,
@@ -46,15 +26,21 @@ const DriverSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  rating: {
+    type: Number,
+    default: 5,
+    min: 0,
+    max: 5
+  },
   totalRides: {
     type: Number,
     default: 0
   },
-  completedRides: {
+  totalEarnings: {
     type: Number,
     default: 0
   },
-  totalEarnings: {
+  commissionPaid: {
     type: Number,
     default: 0
   },

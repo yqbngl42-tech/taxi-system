@@ -9,6 +9,7 @@ import Driver from "./models/Driver.js";
 import Payment from "./models/Payment.js";
 import twilioAdapter from "./utils/twilioAdapter.js";
 import cors from "cors";
+import twilio from "twilio";
 
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
@@ -16,6 +17,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -78,6 +80,13 @@ app.post("/api/rides", authenticateToken, async (req, res) => {
       groupChat = "default"
     } = req.body;
 
+    if (!customerName || !customerPhone || !pickup || !destination || price === undefined) {
+      return res.status(400).json({ 
+        ok: false, 
+        error: "שדות חובה: customerName, customerPhone, pickup, destination, price" 
+      });
+    }
+
     const commission = Math.round((price || 0) * (commissionRate || 0.10));
 
     const ride = await Ride.create({
@@ -97,23 +106,42 @@ app.post("/api/rides", authenticateToken, async (req, res) => {
       history: [{ status: "created", by: req.user.user }]
     });
 
+    const failedPhones = [];
+    const successPhones = [];
+
     if (sendTo && sendTo.length > 0) {
       for (const phone of sendTo) {
         try {
           const msgBody = createRideMessage(ride, true);
           await twilioAdapter.sendWhatsAppMessage(phone, msgBody);
+          successPhones.push(phone);
         } catch (err) {
-          console.error("שגיאה בשליחה ל-", phone, err);
+          console.error("❌ שגיאה בשליחה ל-", phone, err.message);
+          failedPhones.push({ phone, error: err.message });
         }
       }
-      ride.status = "sent";
-      ride.history.push({ status: "sent", by: "system" });
+      
+      if (successPhones.length > 0) {
+        ride.status = "sent";
+        ride.history.push({ status: "sent", by: "system", meta: { sentTo: successPhones } });
+      }
+      
       await ride.save();
+
+      if (failedPhones.length > 0) {
+        console.warn("⚠️  חלק מהשליחה נכשלה:", failedPhones);
+        return res.json({ 
+          ok: true, 
+          ride,
+          warning: `הנסיעה נוצרה אבל שליחה נכשלה ל-${failedPhones.length} טלפונים`,
+          failedPhones
+        });
+      }
     }
 
     res.json({ ok: true, ride });
   } catch (err) {
-    console.error("שגיאה:", err);
+    console.error("שגיאה בעת יצירת נסיעה:", err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -121,7 +149,8 @@ app.post("/api/rides", authenticateToken, async (req, res) => {
 // 📍 API 3: קבלת כל הנסיעות
 app.get("/api/rides", authenticateToken, async (req, res) => {
   try {
-    const rides = await Ride.find().sort({ createdAt: -1 }).limit(200);
+    const limit = Math.min(parseInt(req.query.limit) || 200, 500);
+    const rides = await Ride.find().sort({ createdAt: -1 }).limit(limit);
     res.json(rides);
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -142,6 +171,11 @@ app.get("/api/drivers", authenticateToken, async (req, res) => {
 app.post("/api/drivers/:id/block", authenticateToken, async (req, res) => {
   try {
     const { reason } = req.body;
+    
+    if (!reason) {
+      return res.status(400).json({ ok: false, error: "צריך סיבה לחסימה" });
+    }
+
     const driver = await Driver.findByIdAndUpdate(
       req.params.id,
       {
@@ -151,6 +185,11 @@ app.post("/api/drivers/:id/block", authenticateToken, async (req, res) => {
       },
       { new: true }
     );
+
+    if (!driver) {
+      return res.status(404).json({ ok: false, error: "נהג לא נמצא" });
+    }
+
     res.json({ ok: true, driver });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -169,6 +208,11 @@ app.post("/api/drivers/:id/unblock", authenticateToken, async (req, res) => {
       },
       { new: true }
     );
+
+    if (!driver) {
+      return res.status(404).json({ ok: false, error: "נהג לא נמצא" });
+    }
+
     res.json({ ok: true, driver });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -178,6 +222,18 @@ app.post("/api/drivers/:id/unblock", authenticateToken, async (req, res) => {
 // 🔗 WEBHOOK: קבלת הודעות מ-Twilio
 app.post("/webhook", async (req, res) => {
   try {
+    const twilioSignature = req.headers['x-twilio-signature'] || '';
+    const url = `${process.env.WEBHOOK_URL || 'http://localhost:3000'}/webhook`;
+    
+    if (process.env.TWILIO_AUTH_TOKEN && !twilio.validateRequest(
+      process.env.TWILIO_AUTH_TOKEN,
+      twilioSignature,
+      url,
+      req.body
+    )) {
+      console.warn("⚠️  חתימה של Twilio לא תקינה!");
+    }
+
     const body = req.body;
     const from = body.From;
     const messageBody = body.Body?.trim();
@@ -185,6 +241,7 @@ app.post("/webhook", async (req, res) => {
     console.log("📞 קיבלנו הודעה:", messageBody, "מ-", from);
 
     const driver = await Driver.findOne({ phone: from.replace("whatsapp:", "") });
+    
     if (driver && driver.isBlocked) {
       await twilioAdapter.sendWhatsAppMessage(
         from,
@@ -196,6 +253,11 @@ app.post("/webhook", async (req, res) => {
     if (messageBody && messageBody.startsWith("ACCEPT")) {
       const parts = messageBody.split(" ");
       const rideId = parts[1];
+
+      if (!rideId) {
+        await twilioAdapter.sendWhatsAppMessage(from, "❌ שגיאה: ID נסיעה לא תקין");
+        return res.sendStatus(200);
+      }
 
       const updated = await Ride.findOneAndUpdate(
         { _id: rideId, status: { $in: ["created", "sent"] } },
@@ -216,7 +278,7 @@ app.post("/webhook", async (req, res) => {
       } else {
         await twilioAdapter.sendWhatsAppMessage(
           from,
-          "❌ מצטערים - הנסיעה כבר נלקחה על ידי נהג אחר"
+          "❌ מצטערים - הנסיעה כבר נלקחה על ידי נהג אחר או לא קיימת"
         );
       }
     }
@@ -224,57 +286,91 @@ app.post("/webhook", async (req, res) => {
     if (messageBody && messageBody.startsWith("ENROUTE")) {
       const parts = messageBody.split(" ");
       const rideId = parts[1];
-      await Ride.findByIdAndUpdate(rideId, {
-        status: "enroute",
-        $push: { history: { status: "enroute", by: from } }
-      });
-      await twilioAdapter.sendWhatsAppMessage(from, "✓ סטטוס עדכן: בדרך 🚗");
+      
+      if (rideId) {
+        await Ride.findByIdAndUpdate(rideId, {
+          status: "enroute",
+          $push: { history: { status: "enroute", by: from } }
+        });
+        await twilioAdapter.sendWhatsAppMessage(from, "✓ סטטוס עדכן: בדרך 🚗");
+      }
     }
 
     if (messageBody && messageBody.startsWith("ARRIVED")) {
       const parts = messageBody.split(" ");
       const rideId = parts[1];
-      await Ride.findByIdAndUpdate(rideId, {
-        status: "arrived",
-        $push: { history: { status: "arrived", by: from } }
-      });
-      await twilioAdapter.sendWhatsAppMessage(from, "✓ סטטוס עדכן: הגעתי 📍");
+      
+      if (rideId) {
+        await Ride.findByIdAndUpdate(rideId, {
+          status: "arrived",
+          $push: { history: { status: "arrived", by: from } }
+        });
+        await twilioAdapter.sendWhatsAppMessage(from, "✓ סטטוס עדכן: הגעתי 📍");
+      }
     }
 
     if (messageBody && messageBody.startsWith("FINISH")) {
       const parts = messageBody.split(" ");
       const rideId = parts[1];
-      const ride = await Ride.findByIdAndUpdate(rideId, {
-        status: "finished",
-        $push: { history: { status: "finished", by: from } }
-      });
+      
+      if (rideId) {
+        const ride = await Ride.findByIdAndUpdate(rideId, {
+          status: "finished",
+          $push: { history: { status: "finished", by: from } }
+        }, { new: true });
 
-      const paymentLink = process.env.BIT_LINK || "https://bit.ly/taxi-payment";
-      await twilioAdapter.sendWhatsAppMessage(
-        from,
-        `💳 נסיעה סיימה!\n\nעמלה: ₪${ride?.commissionAmount}\n\n🔗 לחץ לשלם:\n${paymentLink}`
-      );
+        if (ride) {
+          const paymentLink = process.env.BIT_LINK || "https://bit.ly/taxi-payment";
+          await twilioAdapter.sendWhatsAppMessage(
+            from,
+            `💳 נסיעה סיימה!\n\nעמלה: ₪${ride.commissionAmount}\n\n🔗 לחץ לשלם:\n${paymentLink}`
+          );
+        }
+      }
     }
 
     res.sendStatus(200);
   } catch (err) {
-    console.error("webhook error", err);
+    console.error("❌ webhook error", err);
     res.sendStatus(500);
   }
 });
 
+// ✨ Health check endpoint
+app.get("/health", (req, res) => {
+  res.json({ ok: true, timestamp: new Date() });
+});
+
 async function start() {
   try {
-    await mongoose.connect(process.env.MONGODB_URI);
+    console.log("🔄 התחלת חיבור ל-MongoDB...");
+    console.log("📍 כתובת DB:", process.env.MONGODB_URI?.substring(0, 50) + "...");
+    
+    await mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 10000,
+      socketTimeoutMS: 45000
+    });
+    
     console.log("✅ מחובר ל-MongoDB!");
   } catch (err) {
-    console.error("❌ בעיה בחיבור ל-MongoDB:", err);
+    console.error("❌ בעיה בחיבור ל-MongoDB:");
+    console.error("   קוד שגיאה:", err.code);
+    console.error("   הודעה:", err.message);
+    console.error("");
+    console.error("💡 בדוק:");
+    console.error("   1. IP Whitelist ב-MongoDB Atlas");
+    console.error("   2. MONGODB_URI בקובץ .env");
+    console.error("   3. Credentials (username/password)");
     process.exit(1);
   }
 
   app.listen(PORT, () => {
     console.log(`🚀 השרת רץ על: http://localhost:${PORT}`);
     console.log(`🔐 כניסה: http://localhost:${PORT}/login.html`);
+    console.log(`❤️  Health check: http://localhost:${PORT}/health`);
+    console.log("");
+    console.log("💡 Webhook URL (עדכן ב-Twilio):");
+    console.log(`   POST http://your-server.com/webhook`);
   });
 }
 
@@ -313,4 +409,7 @@ ${payLink}`;
   }
 }
 
-start().catch(err => console.error("❌ שגיאה:", err));
+start().catch(err => {
+  console.error("❌ שגיאה קריטית:", err);
+  process.exit(1);
+});
