@@ -28,7 +28,29 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:3001'],
+  origin: function(origin, callback) {
+    // allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      'http://localhost:3000', 
+      'http://localhost:3001',
+      'http://localhost:5500',
+      'http://127.0.0.1:3001',
+      'http://127.0.0.1:5500'
+    ];
+    
+    if (process.env.NODE_ENV === 'production') {
+      // בפרודקשן - אתר הלקוחות שלך
+      allowedOrigins.push(process.env.FRONTEND_URL || 'https://your-client-domain.com');
+    }
+    
+    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -106,13 +128,173 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
-// 📍 API 2: LOGOUT - יציאה
+// 📍 API 2B: יציאה
 app.post("/api/logout", authenticateToken, (req, res) => {
   try {
     logger.action("משתמש התנתק");
     res.json({ ok: true, message: "התנתקת בהצלחה" });
   } catch (err) {
     res.status(500).json({ ok: false, error: "שגיאה בהתנתקות" });
+  }
+});
+
+// 📍 API 2C: קבלת רשימת קבוצות WhatsApp (ללקוחות - ללא auth)
+app.get("/api/client/groups", async (req, res) => {
+  try {
+    const groups = await WhatsAppGroup.find({ isActive: true }, 'name _id');
+    res.json({ ok: true, groups });
+  } catch (err) {
+    logger.error("שגיאה בקבלת קבוצות", err);
+    res.status(500).json({ ok: false, error: "שגיאה בשרת" });
+  }
+});
+
+// 📍 API 2D: יצירת נסיעה מאתר הלקוחות (ללא auth)
+app.post("/api/client/rides", async (req, res) => {
+  try {
+    const { 
+      customerName, 
+      customerPhone, 
+      pickup, 
+      destination, 
+      scheduledTime, 
+      notes, 
+      sendToGroup
+    } = req.body;
+
+    // ✅ בדיקה שכל השדות חובה קיימים
+    if (!customerName || !customerPhone || !pickup || !destination) {
+      return res.status(400).json({ 
+        ok: false, 
+        error: "שדות חובה: שם, טלפון, איסוף, יעד" 
+      });
+    }
+
+    // ✅ בדיקה שהטלפון בן 10 ספרות
+    const phoneRegex = /^(0|\+972)?5\d{8}$/;
+    if (!phoneRegex.test(customerPhone.replace(/[\s\-]/g, ''))) {
+      return res.status(400).json({ ok: false, error: "טלפון לא תקין" });
+    }
+
+    // ✅ בדיקה שהשם לא ריק
+    if (customerName.trim().length < 2) {
+      return res.status(400).json({ ok: false, error: "שם קצר מדי" });
+    }
+
+    // קבל מספר סידורי
+    const rideNumber = await rideNumberGenerator.formatRideNumber();
+    
+    // מחיר ברירת מחדל ללקוח (יוכל להיות מחושב מהמערכת)
+    const defaultPrice = 50; // ניתן לחשב לפי מרחק בהמשך
+
+    const ride = await Ride.create({
+      rideNumber,
+      customerName: customerName.trim(),
+      customerPhone: customerPhone.trim(),
+      pickup: pickup.trim(),
+      destination: destination.trim(),
+      scheduledTime: scheduledTime || null,
+      notes: notes || null,
+      price: defaultPrice,
+      commissionRate: 0.10,
+      commissionAmount: Math.round(defaultPrice * 0.10),
+      status: "created",
+      rideType: "regular",
+      groupChat: "default",
+      createdBy: "client",
+      history: [{ 
+        status: "created", 
+        by: "client_website",
+        timestamp: new Date(),
+        details: "הזמנה מאתר הלקוחות"
+      }]
+    });
+
+    let successCount = 0;
+    const failedPhones = [];
+    let phonesToSend = [];
+
+    // אם בחרו קבוצה
+    if (sendToGroup) {
+      try {
+        const group = await WhatsAppGroup.findById(sendToGroup);
+        if (group && group.isActive && group.phoneNumbers && group.phoneNumbers.length > 0) {
+          phonesToSend = group.phoneNumbers;
+          logger.action("שליחה לקבוצה מאתר לקוחות", { 
+            groupName: group.name, 
+            count: phonesToSend.length,
+            rideNumber 
+          });
+        } else {
+          return res.status(400).json({ 
+            ok: false, 
+            error: "קבוצה לא קיימת או ריקה" 
+          });
+        }
+      } catch (err) {
+        logger.error("שגיאה בחיפוש קבוצה", err);
+        return res.status(400).json({ ok: false, error: "קבוצה לא תקינה" });
+      }
+    } else {
+      // אם לא בחרו - שלח לקבוצה ברירת מחדל
+      try {
+        const defaultGroup = await WhatsAppGroup.findOne({ isDefault: true, isActive: true });
+        if (defaultGroup && defaultGroup.phoneNumbers && defaultGroup.phoneNumbers.length > 0) {
+          phonesToSend = defaultGroup.phoneNumbers;
+          logger.action("שליחה לקבוצה ברירת מחדל", { 
+            groupName: defaultGroup.name,
+            count: phonesToSend.length,
+            rideNumber 
+          });
+        }
+      } catch (err) {
+        logger.error("שגיאה בקבלת קבוצה ברירת מחדל", err);
+      }
+    }
+
+    // שלח הודעות לנהגים בקבוצה
+    if (phonesToSend.length > 0) {
+      for (const phone of phonesToSend) {
+        try {
+          const msgBody = createGroupMessage(ride);
+          await twilioAdapter.sendWhatsAppMessage(phone, msgBody);
+          successCount++;
+        } catch (err) {
+          logger.warn("שגיאה בשליחה לטלפון", { phone, error: err.message });
+          failedPhones.push(phone);
+        }
+      }
+      
+      if (successCount > 0) {
+        ride.status = "sent";
+        ride.history.push({ 
+          status: "sent", 
+          by: "system",
+          details: `נשלח ל-${successCount} נהגים בקבוצה`,
+          timestamp: new Date()
+        });
+        await ride.save();
+        logger.success("נסיעה נשלחה מאתר לקוחות", { 
+          rideId: ride._id, 
+          rideNumber, 
+          sentCount: successCount 
+        });
+      }
+    }
+
+    res.json({ 
+      ok: true, 
+      ride,
+      rideNumber: ride.rideNumber,
+      sentCount: successCount,
+      failedCount: failedPhones.length,
+      message: successCount > 0 
+        ? `✅ הנסיעה הזומנה! מספר נסיעה: ${ride.rideNumber}` 
+        : "⚠️ נסיעה נוצרה אך לא נשלחה לנהגים"
+    });
+  } catch (err) {
+    logger.error("שגיאה בעת יצירת נסיעה מאתר לקוחות", err);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
