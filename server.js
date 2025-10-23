@@ -1223,11 +1223,6 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// ❤️ Health Check
-app.get("/api/health", (req, res) => {
-  res.json({ ok: true, timestamp: new Date() });
-});
-
 // ============================================
 // ACTIVITY LOGGING ENDPOINTS (תוספת חדשה)
 // ============================================
