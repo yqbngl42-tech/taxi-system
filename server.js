@@ -249,11 +249,13 @@ app.post("/api/client/rides", async (req, res) => {
         return res.status(400).json({ ok: false, error: "קבוצה לא תקינה" });
       }
     } else {
-      // אם לא בחרו - שלח לקבוצה ברירת מחדל
+      // אם לא בחרו - נסיון שליחה לקבוצה ברירת מחדל
+      let sendMethod = "";
       try {
         const defaultGroup = await WhatsAppGroup.findOne({ isDefault: true, isActive: true });
         if (defaultGroup && defaultGroup.phoneNumbers && defaultGroup.phoneNumbers.length > 0) {
           phonesToSend = defaultGroup.phoneNumbers;
+          sendMethod = `קבוצה ברירת מחדל: ${defaultGroup.name}`;
           logger.action("שליחה לקבוצה ברירת מחדל", { 
             groupName: defaultGroup.name,
             count: phonesToSend.length,
@@ -262,6 +264,32 @@ app.post("/api/client/rides", async (req, res) => {
         }
       } catch (err) {
         logger.error("שגיאה בקבלת קבוצה ברירת מחדל", err);
+      }
+      
+      // 🔴 FIX: אם אין קבוצה ברירת מחדל - שלח לכל הנהגים הפעילים!
+      if (phonesToSend.length === 0) {
+        try {
+          logger.warn("⚠️ אין קבוצה ברירת מחדל - שולח לכל הנהגים הפעילים", {});
+          
+          const drivers = await Driver.find({ 
+            isActive: true, 
+            phone: { $exists: true, $ne: "" } 
+          }, 'phone name');
+          
+          if (drivers && drivers.length > 0) {
+            phonesToSend = drivers.map(d => d.phone);
+            sendMethod = `כל הנהגים (${drivers.length})`;
+            
+            logger.action("שליחה לכל הנהגים - קבוצה ברירת מחדל לא קיימת", { 
+              count: phonesToSend.length,
+              rideNumber 
+            });
+          } else {
+            logger.warn("❌ אין נהגים פעילים למקור", {});
+          }
+        } catch (err) {
+          logger.error("שגיאה בחיפוש נהגים", err);
+        }
       }
     }
 
@@ -302,7 +330,7 @@ app.post("/api/client/rides", async (req, res) => {
       sentCount: successCount,
       failedCount: failedPhones.length,
       message: successCount > 0 
-        ? `✅ הנסיעה הזומנה! מספר נסיעה: ${ride.rideNumber}` 
+        ? `✅ הנסיעה הזומנה! מספר נסיעה: ${ride.rideNumber} (נשלח ל-${successCount} נהגים)` 
         : "⚠️ נסיעה נוצרה אך לא נשלחה לנהגים"
     });
   } catch (err) {
