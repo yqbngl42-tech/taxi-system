@@ -37,7 +37,8 @@ const allowedOrigins = [
   'http://127.0.0.1:3001',
   'http://127.0.0.1:5500',
   'http://localhost:8080',
-  'http://127.0.0.1:8080'
+  'http://127.0.0.1:8080',
+  'https://taxi-system.onrender.com'
 ];
 
 // בפרודקשן - הוסף כתובות אתרים
@@ -1360,7 +1361,7 @@ app.post('/api/admin/default-group', async (req, res) => {
 // GET /api/admin/default-group - קבל ברירת מחדל
 app.get('/api/admin/default-group', async (req, res) => {
   try {
-    const defaultGroup = await Group.findOne({ isDefault: true });
+    const defaultGroup = await WhatsAppGroup.findOne({ isDefault: true });
 
     if (!defaultGroup) {
       return res.json({
