@@ -638,7 +638,12 @@
   <!-- Navigation Tabs -->
   <div class="main">
     <div class="nav-tabs">
+
+  <!-- Navigation Tabs -->
+  <div class="main">
+    <div class="nav-tabs">
       <button class="nav-tab active" onclick="showTab('dashboard')">📊 Dashboard</button>
+      <button class="nav-tab" onclick="showTab('activities')">📋 פעילויות לקוחות</button>
       <button class="nav-tab" onclick="showTab('rides')">🚖 נסיעות</button>
       <button class="nav-tab" onclick="showTab('drivers')">👨‍💼 נהגים</button>
       <button class="nav-tab" onclick="showTab('groups')">👥 קבוצות WhatsApp</button>
@@ -659,6 +664,28 @@
         <div class="card">
           <h3>💰 הרווחים החודשיים</h3>
           <canvas id="earningsChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Activities Tab (פעילויות לקוחות) - חדש -->
+    <div id="activities" class="tab-content">
+      <div class="card">
+        <h3>📋 פעילויות לקוחות בזמן אמת</h3>
+        <div class="search-bar">
+          <input type="text" id="activitySearch" placeholder="חפש בפעילויות...">
+          <select id="activityFilter">
+            <option value="">כל הפעילויות</option>
+            <option value="customer">👤 לקוח</option>
+            <option value="ride">🚖 נסיעה</option>
+            <option value="payment">💰 תשלום</option>
+            <option value="system">⚙️ מערכת</option>
+          </select>
+          <button class="btn btn-primary" onclick="loadActivities()">🔄 רענן</button>
+          <button class="btn btn-success" onclick="clearActivities()">🗑️ נקה הרשומה</button>
+        </div>
+        <div id="activitiesContainer" style="max-height: 600px; overflow-y: auto;">
+          <!-- Activities will be loaded here -->
         </div>
       </div>
     </div>

@@ -11,6 +11,7 @@ import Driver from "./models/Driver.js";
 import Payment from "./models/Payment.js";
 import WhatsAppGroup from "./models/WhatsAppGroup.js";
 import AdminContact from "./models/AdminContact.js";
+import Activity from "./models/Activity.js";
 import twilioAdapter from "./utils/twilioAdapter.js";
 import logger from "./utils/logger.js";
 import rateLimiter from "./utils/rateLimiter.js";
@@ -1222,6 +1223,169 @@ app.post("/webhook", async (req, res) => {
 });
 
 // ❤️ Health Check
+app.get("/api/health", (req, res) => {
+  res.json({ ok: true, timestamp: new Date() });
+});
+
+// ============================================
+// ACTIVITY LOGGING ENDPOINTS (תוספת חדשה)
+// ============================================
+
+// POST /api/activities - הוסף פעילות
+app.post('/api/activities', async (req, res) => {
+  try {
+    const { message, type, emoji, details, user } = req.body;
+
+    if (!message || !type) {
+      return res.status(400).json({ ok: false, error: 'חובה: message ו-type' });
+    }
+
+    const validTypes = ['customer', 'ride', 'payment', 'system'];
+    if (!validTypes.includes(type)) {
+      return res.status(400).json({ ok: false, error: 'סוג פעילות לא תקין' });
+    }
+
+    const activity = {
+      timestamp: new Date(),
+      message,
+      type,
+      emoji: emoji || '📝',
+      details: details || null,
+      user: user || 'admin'
+    };
+
+    const newActivity = await Activity.create(activity);
+    console.log(`[ACTIVITY] ${activity.emoji} ${activity.message}`);
+
+    res.json({
+      ok: true,
+      activityId: newActivity._id,
+      message: 'פעילות נרשמה בהצלחה'
+    });
+
+  } catch (error) {
+    console.error('שגיאה בהוספת פעילות:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// GET /api/activities - קבל פעילויות
+app.get('/api/activities', async (req, res) => {
+  try {
+    const limit = req.query.limit || 100;
+    const type = req.query.type;
+
+    let query = {};
+    if (type) {
+      query.type = type;
+    }
+
+    const activities = await Activity.find(query)
+      .sort({ timestamp: -1 })
+      .limit(parseInt(limit));
+
+    res.json(activities);
+
+  } catch (error) {
+    console.error('שגיאה בטעינת פעילויות:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// DELETE /api/activities - נקה הרשומה
+app.delete('/api/activities', async (req, res) => {
+  try {
+    const result = await Activity.deleteMany({});
+    console.log(`✅ נמחקו ${result.deletedCount} פעילויות`);
+
+    res.json({
+      ok: true,
+      deleted: result.deletedCount,
+      message: 'הרשומה נוקתה בהצלחה'
+    });
+
+  } catch (error) {
+    console.error('שגיאה בניקוי הרשומה:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// ============================================
+// DEFAULT GROUP MANAGEMENT (תוספת חדשה)
+// ============================================
+
+// POST /api/admin/default-group - הגדר ברירת מחדל
+app.post('/api/admin/default-group', async (req, res) => {
+  try {
+    const { groupId } = req.body;
+
+    if (!groupId) {
+      return res.status(400).json({ ok: false, error: 'groupId חובה' });
+    }
+
+    const group = await Group.findById(groupId);
+    if (!group) {
+      return res.status(404).json({ ok: false, error: 'קבוצה לא קיימת' });
+    }
+
+    await Group.updateMany({}, { isDefault: false });
+    const updated = await Group.findByIdAndUpdate(
+      groupId,
+      { isDefault: true },
+      { new: true }
+    );
+
+    await Activity.create({
+      timestamp: new Date(),
+      message: `ברירת מחדל שונתה ל: ${group.name}`,
+      type: 'system',
+      emoji: '⭐',
+      details: `קבוצה: ${group.name}`,
+      user: 'admin'
+    });
+
+    res.json({
+      ok: true,
+      groupId: updated._id,
+      groupName: updated.name,
+      message: 'ברירת מחדל עודכנה בהצלחה'
+    });
+
+  } catch (error) {
+    console.error('שגיאה בהגדרת ברירת מחדל:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// GET /api/admin/default-group - קבל ברירת מחדל
+app.get('/api/admin/default-group', async (req, res) => {
+  try {
+    const defaultGroup = await Group.findOne({ isDefault: true });
+
+    if (!defaultGroup) {
+      return res.json({
+        ok: true,
+        groupId: null,
+        groupName: 'לא נבחרה',
+        message: 'אין ברירת מחדל'
+      });
+    }
+
+    res.json({
+      ok: true,
+      groupId: defaultGroup._id,
+      groupName: defaultGroup.name,
+      description: defaultGroup.description,
+      membersCount: defaultGroup.members.length,
+      message: 'ברירת מחדל נטענה בהצלחה'
+    });
+
+  } catch (error) {
+    console.error('שגיאה בטעינת ברירת מחדל:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 app.get("/api/health", (req, res) => {
   res.json({ 
     ok: true, 

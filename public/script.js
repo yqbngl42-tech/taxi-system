@@ -1017,3 +1017,122 @@ setInterval(() => {
 window.addEventListener('load', () => {
   loadDashboard();
 });
+
+// ============================================
+// ACTIVITY LOGGING SYSTEM (תוספת חדשה)
+// ============================================
+
+let activities = [];
+
+async function loadActivities() {
+  try {
+    const response = await fetch('/api/activities');
+    if (response.ok) {
+      activities = await response.json();
+      displayActivities();
+    }
+  } catch (error) {
+    console.error('שגיאה בטעינת פעילויות:', error);
+    showToast('❌ שגיאה בטעינת פעילויות', 'error');
+  }
+}
+
+function displayActivities() {
+  const container = document.getElementById('activitiesContainer');
+  const searchTerm = document.getElementById('activitySearch')?.value.toLowerCase() || '';
+  const filter = document.getElementById('activityFilter')?.value || '';
+
+  let filteredActivities = activities.filter(activity => {
+    const matchSearch = activity.message.toLowerCase().includes(searchTerm);
+    const matchFilter = !filter || activity.type === filter;
+    return matchSearch && matchFilter;
+  });
+
+  if (filteredActivities.length === 0) {
+    container.innerHTML = '<div style="text-align: center; padding: 40px;">📭 אין פעילויות</div>';
+    return;
+  }
+
+  container.innerHTML = filteredActivities.map(activity => `
+    <div style="padding: 15px; border-left: 4px solid #3498db; background-color: #f8f9fa; margin-bottom: 10px; border-radius: 4px; display: grid; grid-template-columns: 80px 1fr 200px; gap: 15px; align-items: center;">
+      <div style="font-size: 12px; color: #7f8c8d; font-weight: 600;">
+        🕐 ${new Date(activity.timestamp).toLocaleTimeString('he-IL')}
+      </div>
+      <div style="font-size: 14px; color: #555;">
+        ${activity.emoji} ${activity.message}
+        ${activity.details ? `<br><small style="color: #7f8c8d;">${activity.details}</small>` : ''}
+      </div>
+      <div style="font-size: 12px; padding: 4px 10px; border-radius: 20px; text-align: center; font-weight: 600; background-color: #e8f4f8; color: #2980b9;">
+        ${activity.type.toUpperCase()}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function clearActivities() {
+  if (confirm('האם אתה בטוח שברצונך לנקות את כל ההרשומה?')) {
+    try {
+      const response = await fetch('/api/activities', { method: 'DELETE' });
+      if (response.ok) {
+        activities = [];
+        displayActivities();
+        showToast('✅ הרשומה נוקתה בהצלחה', 'success');
+      }
+    } catch (error) {
+      console.error('שגיאה:', error);
+      showToast('❌ שגיאה בניקוי הרשומה', 'error');
+    }
+  }
+}
+
+// ============================================
+// DEFAULT GROUP MANAGEMENT (תוספת חדשה)
+// ============================================
+
+async function loadDefaultGroupForForm() {
+  try {
+    const response = await fetch('/api/admin/default-group');
+    if (response.ok) {
+      const data = await response.json();
+      const groupSelect = document.getElementById('sendToGroup');
+      
+      if (data.groupId && groupSelect) {
+        groupSelect.value = data.groupId;
+      }
+    }
+  } catch (error) {
+    console.error('שגיאה בטעינת ברירת מחדל:', error);
+  }
+}
+
+async function setDefaultGroup(groupId) {
+  try {
+    const response = await fetch('/api/admin/default-group', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ groupId })
+    });
+    
+    if (response.ok) {
+      await loadDefaultGroupForForm();
+      await loadGroups();
+      showToast('✅ ברירת מחדל עודכנה בהצלחה', 'success');
+    }
+  } catch (error) {
+    console.error('שגיאה:', error);
+    showToast('❌ שגיאה בהגדרת ברירת מחדל', 'error');
+  }
+}
+
+// Search filters
+document.getElementById('activitySearch')?.addEventListener('input', displayActivities);
+document.getElementById('activityFilter')?.addEventListener('change', displayActivities);
+
+// Load activities on page load
+window.addEventListener('load', () => {
+  loadActivities();
+  loadDefaultGroupForForm();
+});
+
+// Auto-refresh activities every 30 seconds
+setInterval(loadActivities, 30000);
