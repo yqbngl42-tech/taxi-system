@@ -295,16 +295,33 @@ app.post("/api/client/rides", async (req, res) => {
 
     // שלח הודעות לנהגים בקבוצה
     if (phonesToSend.length > 0) {
+      logger.action(`מתחיל שליחה ל-${phonesToSend.length} נהגים`, { rideNumber });
+      
       for (const phone of phonesToSend) {
         try {
           const msgBody = createGroupMessage(ride);
+          logger.info(`שולח הודעה לנהג`, { phone, rideNumber });
+          
           await twilioAdapter.sendWhatsAppMessage(phone, msgBody);
           successCount++;
+          
+          logger.success(`הודעה נשלחה בהצלחה`, { phone, rideNumber });
         } catch (err) {
-          logger.warn("שגיאה בשליחה לטלפון", { phone, error: err.message });
+          logger.warn("שגיאה בשליחה לטלפון", { 
+            phone, 
+            rideNumber,
+            error: err.message,
+            code: err.code 
+          });
           failedPhones.push(phone);
         }
       }
+      
+      logger.action(`סיים שליחה: ${successCount} הצליחו, ${failedPhones.length} נכשלו`, { 
+        rideNumber,
+        successCount,
+        failedCount: failedPhones.length 
+      });
       
       if (successCount > 0) {
         ride.status = "sent";
@@ -429,16 +446,33 @@ app.post("/api/rides", authenticateToken, async (req, res) => {
 
     // שלח הודעות לנהגים
     if (phonesToSend.length > 0) {
+      logger.action(`מתחיל שליחה ל-${phonesToSend.length} נהגים`, { rideNumber });
+      
       for (const phone of phonesToSend) {
         try {
           const msgBody = createGroupMessage(ride);
+          logger.info(`שולח הודעה לנהג`, { phone, rideNumber });
+          
           await twilioAdapter.sendWhatsAppMessage(phone, msgBody);
           successCount++;
+          
+          logger.success(`הודעה נשלחה בהצלחה`, { phone, rideNumber });
         } catch (err) {
-          logger.warn("שגיאה בשליחה לטלפון", { phone, error: err.message });
+          logger.warn("שגיאה בשליחה לטלפון", { 
+            phone, 
+            rideNumber,
+            error: err.message,
+            code: err.code 
+          });
           failedPhones.push(phone);
         }
       }
+      
+      logger.action(`סיים שליחה: ${successCount} הצליחו, ${failedPhones.length} נכשלו`, { 
+        rideNumber,
+        successCount,
+        failedCount: failedPhones.length 
+      });
       
       if (successCount > 0) {
         ride.status = "sent";

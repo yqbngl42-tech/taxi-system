@@ -32,6 +32,7 @@ export default {
     const errorMsg = error?.message || JSON.stringify(error);
     const logMessage = `[${timestamp}] ❌ ERROR: ${message} | ${errorMsg}`;
     console.error(logMessage);
+    console.error('Stack trace:', error?.stack || 'N/A'); // הוספת stack trace
     appendToLogFile(logMessage);
   },
 
