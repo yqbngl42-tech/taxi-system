@@ -1190,6 +1190,639 @@ app.get("/api/analytics", authenticateToken, async (req, res) => {
   }
 });
 
+// ========== STATISTICS (for dashboard) ==========
+app.get("/api/statistics", authenticateToken, async (req, res) => {
+  try {
+    // Count rides by status
+    const ridesCount = await Ride.countDocuments();
+    const activeRides = await Ride.countDocuments({ 
+      status: { $in: ['sent', 'approved', 'enroute'] } 
+    });
+    const finishedToday = await Ride.countDocuments({
+      status: 'finished',
+      createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) }
+    });
+    
+    // Count drivers
+    const driversCount = await Driver.countDocuments();
+    const activeDrivers = await Driver.countDocuments({ isActive: true });
+    
+    // Revenue today
+    const revenueToday = await Ride.aggregate([
+      {
+        $match: {
+          status: 'finished',
+          createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: '$price' },
+          commission: { $sum: '$commissionAmount' }
+        }
+      }
+    ]);
+    
+    const todayRevenue = revenueToday[0] || { total: 0, commission: 0 };
+    
+    res.json({
+      ok: true,
+      stats: {
+        rides: {
+          total: ridesCount,
+          active: activeRides,
+          finishedToday
+        },
+        drivers: {
+          total: driversCount,
+          active: activeDrivers
+        },
+        revenue: {
+          today: todayRevenue.total,
+          commission: todayRevenue.commission
+        }
+      }
+    });
+  } catch (err) {
+    logger.error("Error getting statistics", {
+      requestId: req.id,
+      error: err.message
+    });
+    res.status(500).json({
+      ok: false,
+      error: ERRORS.SERVER.DATABASE
+    });
+  }
+});
+
+// ========== ACTIVITIES ==========
+app.get("/api/activities", authenticateToken, async (req, res) => {
+  try {
+    const limit = Math.min(50, parseInt(req.query.limit) || 20);
+    
+    const activities = await Activity.find()
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+    
+    res.json({
+      ok: true,
+      activities
+    });
+  } catch (err) {
+    logger.error("Error getting activities", {
+      requestId: req.id,
+      error: err.message
+    });
+    res.status(500).json({
+      ok: false,
+      error: ERRORS.SERVER.DATABASE
+    });
+  }
+});
+
+// ========== ADMIN CONTACT ==========
+app.get("/api/admin-contact", authenticateToken, async (req, res) => {
+  try {
+    // Get the first (and should be only) admin contact
+    const contact = await AdminContact.findOne().lean();
+    
+    res.json({
+      ok: true,
+      contact: contact || null
+    });
+  } catch (err) {
+    logger.error("Error getting admin contact", {
+      requestId: req.id,
+      error: err.message
+    });
+    res.status(500).json({
+      ok: false,
+      error: ERRORS.SERVER.DATABASE
+    });
+  }
+});
+
+app.post("/api/admin-contact", authenticateToken, async (req, res) => {
+  try {
+    const { adminName, adminPhone, adminEmail, appealMessage } = req.body;
+    
+    if (!adminName || !adminPhone) {
+      return res.status(400).json({
+        ok: false,
+        error: "שדות חובה: שם וטלפון"
+      });
+    }
+    
+    const contact = await AdminContact.create({
+      adminName: adminName.trim(),
+      adminPhone: adminPhone.trim(),
+      adminEmail: adminEmail || null,
+      appealMessage: appealMessage || "⚠️ עברתי על התקנות - בקשה להסרת חסימה"
+    });
+    
+    logger.success("Admin contact created", {
+      requestId: req.id,
+      contactId: contact._id
+    });
+    
+    res.json({
+      ok: true,
+      contact
+    });
+  } catch (err) {
+    logger.error("Error creating admin contact", {
+      requestId: req.id,
+      error: err.message
+    });
+    res.status(500).json({
+      ok: false,
+      error: ERRORS.SERVER.UNKNOWN
+    });
+  }
+});
+
+app.put("/api/admin-contact/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { adminName, adminPhone, adminEmail, appealMessage, isActive } = req.body;
+    
+    const updateData = {};
+    if (adminName !== undefined) updateData.adminName = adminName;
+    if (adminPhone !== undefined) updateData.adminPhone = adminPhone;
+    if (adminEmail !== undefined) updateData.adminEmail = adminEmail;
+    if (appealMessage !== undefined) updateData.appealMessage = appealMessage;
+    if (isActive !== undefined) updateData.isActive = isActive;
+    updateData.updatedAt = Date.now();
+    
+    const contact = await AdminContact.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true }
+    );
+    
+    if (!contact) {
+      return res.status(404).json({
+        ok: false,
+        error: "איש קשר לא נמצא"
+      });
+    }
+    
+    res.json({
+      ok: true,
+      contact
+    });
+  } catch (err) {
+    logger.error("Error updating admin contact", {
+      requestId: req.id,
+      error: err.message
+    });
+    res.status(500).json({
+      ok: false,
+      error: ERRORS.SERVER.UNKNOWN
+    });
+  }
+});
+
+app.delete("/api/admin-contact/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const contact = await AdminContact.findByIdAndDelete(id);
+    
+    if (!contact) {
+      return res.status(404).json({
+        ok: false,
+        error: "איש קשר לא נמצא"
+      });
+    }
+    
+    res.json({
+      ok: true,
+      message: "איש קשר נמחק בהצלחה"
+    });
+  } catch (err) {
+    logger.error("Error deleting admin contact", {
+      requestId: req.id,
+      error: err.message
+    });
+    res.status(500).json({
+      ok: false,
+      error: ERRORS.SERVER.UNKNOWN
+    });
+  }
+});
+
+// ========== DEFAULT GROUP ==========
+app.get("/api/admin/default-group", authenticateToken, async (req, res) => {
+  try {
+    const defaultGroup = await WhatsAppGroup.findOne({ isDefault: true });
+    
+    res.json({
+      ok: true,
+      defaultGroup: defaultGroup || null
+    });
+  } catch (err) {
+    logger.error("Error getting default group", {
+      requestId: req.id,
+      error: err.message
+    });
+    res.status(500).json({
+      ok: false,
+      error: ERRORS.SERVER.DATABASE
+    });
+  }
+});
+
+app.post("/api/admin/default-group", authenticateToken, async (req, res) => {
+  try {
+    const { groupId } = req.body;
+    
+    if (!groupId) {
+      return res.status(400).json({
+        ok: false,
+        error: "נדרש מזהה קבוצה"
+      });
+    }
+    
+    // Remove default from all groups
+    await WhatsAppGroup.updateMany({}, { isDefault: false });
+    
+    // Set new default
+    const group = await WhatsAppGroup.findByIdAndUpdate(
+      groupId,
+      { isDefault: true },
+      { new: true }
+    );
+    
+    if (!group) {
+      return res.status(404).json({
+        ok: false,
+        error: "קבוצה לא נמצאה"
+      });
+    }
+    
+    logger.success("Default group updated", {
+      requestId: req.id,
+      groupId: group._id,
+      groupName: group.name
+    });
+    
+    res.json({
+      ok: true,
+      group
+    });
+  } catch (err) {
+    logger.error("Error setting default group", {
+      requestId: req.id,
+      error: err.message
+    });
+    res.status(500).json({
+      ok: false,
+      error: ERRORS.SERVER.UNKNOWN
+    });
+  }
+});
+
+// ========== UPDATE GROUP ==========
+app.put("/api/groups/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, phoneNumbers, isDefault, isActive } = req.body;
+    
+    // If setting as default, unset others
+    if (isDefault) {
+      await WhatsAppGroup.updateMany(
+        { _id: { $ne: id } },
+        { isDefault: false }
+      );
+    }
+    
+    const group = await WhatsAppGroup.findByIdAndUpdate(
+      id,
+      { name, phoneNumbers, isDefault, isActive },
+      { new: true }
+    );
+    
+    if (!group) {
+      return res.status(404).json({
+        ok: false,
+        error: "קבוצה לא נמצאה"
+      });
+    }
+    
+    logger.success("Group updated", {
+      requestId: req.id,
+      groupId: group._id
+    });
+    
+    res.json({
+      ok: true,
+      group
+    });
+  } catch (err) {
+    logger.error("Error updating group", {
+      requestId: req.id,
+      error: err.message
+    });
+    res.status(500).json({
+      ok: false,
+      error: ERRORS.SERVER.UNKNOWN
+    });
+  }
+});
+
+app.delete("/api/groups/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const group = await WhatsAppGroup.findById(id);
+    
+    if (!group) {
+      return res.status(404).json({
+        ok: false,
+        error: "קבוצה לא נמצאה"
+      });
+    }
+    
+    if (group.isDefault) {
+      return res.status(400).json({
+        ok: false,
+        error: "לא ניתן למחוק את קבוצת ברירת המחדל"
+      });
+    }
+    
+    await WhatsAppGroup.findByIdAndDelete(id);
+    
+    logger.success("Group deleted", {
+      requestId: req.id,
+      groupId: id
+    });
+    
+    res.json({
+      ok: true,
+      message: "קבוצה נמחקה בהצלחה"
+    });
+  } catch (err) {
+    logger.error("Error deleting group", {
+      requestId: req.id,
+      error: err.message
+    });
+    res.status(500).json({
+      ok: false,
+      error: ERRORS.SERVER.UNKNOWN
+    });
+  }
+});
+
+// ========== UPDATE DRIVER ==========
+app.put("/api/drivers/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, phone, licenseNumber, isActive } = req.body;
+    
+    const driver = await Driver.findByIdAndUpdate(
+      id,
+      { name, phone, licenseNumber, isActive },
+      { new: true }
+    );
+    
+    if (!driver) {
+      return res.status(404).json({
+        ok: false,
+        error: "נהג לא נמצא"
+      });
+    }
+    
+    logger.success("Driver updated", {
+      requestId: req.id,
+      driverId: driver._id
+    });
+    
+    res.json({
+      ok: true,
+      driver
+    });
+  } catch (err) {
+    logger.error("Error updating driver", {
+      requestId: req.id,
+      error: err.message
+    });
+    res.status(500).json({
+      ok: false,
+      error: ERRORS.SERVER.UNKNOWN
+    });
+  }
+});
+
+app.delete("/api/drivers/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Check if driver has active rides
+    const activeRides = await Ride.countDocuments({
+      driverPhone: (await Driver.findById(id))?.phone,
+      status: { $in: ['approved', 'enroute', 'arrived'] }
+    });
+    
+    if (activeRides > 0) {
+      return res.status(400).json({
+        ok: false,
+        error: "לא ניתן למחוק נהג עם נסיעות פעילות"
+      });
+    }
+    
+    await Driver.findByIdAndDelete(id);
+    
+    logger.success("Driver deleted", {
+      requestId: req.id,
+      driverId: id
+    });
+    
+    res.json({
+      ok: true,
+      message: "נהג נמחק בהצלחה"
+    });
+  } catch (err) {
+    logger.error("Error deleting driver", {
+      requestId: req.id,
+      error: err.message
+    });
+    res.status(500).json({
+      ok: false,
+      error: ERRORS.SERVER.UNKNOWN
+    });
+  }
+});
+
+// ========== BLOCK/UNBLOCK DRIVER ==========
+app.post("/api/drivers/:id/block", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    
+    const driver = await Driver.findById(id);
+    
+    if (!driver) {
+      return res.status(404).json({
+        ok: false,
+        error: "נהג לא נמצא"
+      });
+    }
+    
+    driver.isBlocked = true;
+    driver.blockReason = reason || 'לא צוין';
+    driver.blockedAt = new Date();
+    driver.isActive = false;
+    await driver.save();
+    
+    logger.success("Driver blocked", {
+      requestId: req.id,
+      driverId: id,
+      driverName: driver.name,
+      reason
+    });
+    
+    res.json({
+      ok: true,
+      message: "נהג נחסם בהצלחה",
+      driver
+    });
+  } catch (err) {
+    logger.error("Error blocking driver", {
+      requestId: req.id,
+      error: err.message
+    });
+    res.status(500).json({
+      ok: false,
+      error: ERRORS.SERVER.UNKNOWN
+    });
+  }
+});
+
+app.post("/api/drivers/:id/unblock", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const driver = await Driver.findById(id);
+    
+    if (!driver) {
+      return res.status(404).json({
+        ok: false,
+        error: "נהג לא נמצא"
+      });
+    }
+    
+    driver.isBlocked = false;
+    driver.blockReason = null;
+    driver.blockedAt = null;
+    driver.isActive = true;
+    await driver.save();
+    
+    logger.success("Driver unblocked", {
+      requestId: req.id,
+      driverId: id,
+      driverName: driver.name
+    });
+    
+    res.json({
+      ok: true,
+      message: "חסימת נהג הוסרה",
+      driver
+    });
+  } catch (err) {
+    logger.error("Error unblocking driver", {
+      requestId: req.id,
+      error: err.message
+    });
+    res.status(500).json({
+      ok: false,
+      error: ERRORS.SERVER.UNKNOWN
+    });
+  }
+});
+
+// ========== GET SINGLE RIDE ==========
+app.get("/api/rides/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const ride = await Ride.findById(id);
+    
+    if (!ride) {
+      return res.status(404).json({
+        ok: false,
+        error: "נסיעה לא נמצאה"
+      });
+    }
+    
+    res.json({
+      ok: true,
+      ride
+    });
+  } catch (err) {
+    logger.error("Error getting ride", {
+      requestId: req.id,
+      error: err.message
+    });
+    res.status(500).json({
+      ok: false,
+      error: ERRORS.SERVER.DATABASE
+    });
+  }
+});
+
+app.delete("/api/rides/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const ride = await Ride.findById(id);
+    
+    if (!ride) {
+      return res.status(404).json({
+        ok: false,
+        error: "נסיעה לא נמצאה"
+      });
+    }
+    
+    if (!ride.canBeCancelled || !ride.canBeCancelled()) {
+      return res.status(400).json({
+        ok: false,
+        error: "לא ניתן לבטל נסיעה בסטטוס זה"
+      });
+    }
+    
+    ride.status = 'cancelled';
+    ride.history.push({
+      status: 'cancelled',
+      by: 'admin',
+      details: 'נסיעה בוטלה מממשק הניהול',
+      timestamp: new Date()
+    });
+    await ride.save();
+    
+    logger.success("Ride cancelled", {
+      requestId: req.id,
+      rideId: id
+    });
+    
+    res.json({
+      ok: true,
+      message: "נסיעה בוטלה בהצלחה"
+    });
+  } catch (err) {
+    logger.error("Error cancelling ride", {
+      requestId: req.id,
+      error: err.message
+    });
+    res.status(500).json({
+      ok: false,
+      error: ERRORS.SERVER.UNKNOWN
+    });
+  }
+});
+
 // ===============================================
 // 🚫 ERROR HANDLERS
 // ===============================================
